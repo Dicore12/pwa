@@ -83,7 +83,8 @@
   .sheet { background: var(--card); width: 100%; max-width: 560px; max-height: 92%; overflow-y: auto;
     border-radius: 18px 18px 0 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); }
   @media (min-width: 640px) { .overlay { align-items: center; } .sheet { border-radius: 18px; } }
-  .sheet h2 { margin: 0 0 12px; font-size: 18px; }
+  .sheet h2 { margin: -18px -18px 12px; padding: 18px 18px 10px; font-size: 18px; overflow-wrap: anywhere;
+    position: sticky; top: -18px; z-index: 3; /* -18px = padding .sheet */ background: var(--card); border-bottom: 1px solid var(--border); }
   label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
   input { display: block; width: 100%; margin-top: 4px; padding: 10px 12px; font: inherit; color: var(--text);
     background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
@@ -706,7 +707,7 @@
     root.querySelector('.overlay').addEventListener('mousedown', function (e) {
       if (e.target === e.currentTarget) closeModal();
     });
-    $('cancel').focus();
+    $('cancel').focus({ preventScroll: true }); // jangan menggulung ke tombol di dasar daftar panjang
   }
 
   // Produk yang diorder satu outlet pada bulan yang sedang dilihat, dihitung dari data nota yang sudah dimuat.
