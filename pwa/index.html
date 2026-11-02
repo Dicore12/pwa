@@ -119,6 +119,16 @@
   .line label { margin-bottom: 8px; }
   .lhead { display: flex; align-items: center; justify-content: space-between; }
   .line .sub { text-align: right; font-size: 13px; color: var(--muted); }
+  .adj { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  .alls { background: var(--soft); border-radius: 12px; padding: 10px 12px 2px; margin: 4px 0 12px; }
+  .alls .row { margin-bottom: 0; }
+  .alls .hint-sm { margin: 0 0 8px; }
+  .tbox { border-top: 1px solid var(--border); margin: 8px 0; padding-top: 8px; }
+  .trow { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: var(--muted); padding: 2px 0; }
+  .trow[hidden] { display: none; }
+  .trow.grand { font-size: 17px; color: var(--text); padding-top: 6px; }
+  .tg { display: block; font-size: 11px; color: var(--muted); }
+  .brk { font-size: 12px; color: var(--muted); margin-top: 4px; }
 
   .bar-row.tap { cursor: pointer; padding: 6px 8px; margin: 0 -8px 6px; border-radius: 10px; }
   .bar-row.tap:active, .bar-row.tap:focus-visible { background: var(--soft); outline: none; }
@@ -184,6 +194,54 @@
   function monthLabel(m) { var p = m.split('-'); return MONTHS[Number(p[1]) - 1] + ' ' + p[0]; }
   function fmtDate(s) { var p = s.split('-'); return Number(p[2]) + ' ' + MONTHS[Number(p[1]) - 1].slice(0, 3) + ' ' + p[0]; }
   function rp(n) { return 'Rp ' + Number(n || 0).toLocaleString('id-ID'); }
+
+  // Hitungan harus sama persis dengan calc_ di Code.gs: diskon dari subtotal, pajak dari subtotal setelah diskon.
+  // Persen dikali 100 dulu supaya hitungan bulat; tiap nominal dibulatkan ke rupiah (setengah naik).
+  function calc(qty, price, disc, tax) {
+    var sub = qty * price;
+    var discAmt = Math.round(sub * Math.round(disc * 100) / 10000);
+    var net = sub - discAmt;
+    var taxAmt = Math.round(net * Math.round(tax * 100) / 10000);
+    return { sub: sub, discAmt: discAmt, taxAmt: taxAmt, total: net + taxAmt };
+  }
+  function fmtPct(n) { return String(n).replace('.', ','); }
+  /** Isian persen: kosong = 0, boleh koma atau titik, 0-100, maksimal 2 desimal. Tidak valid = NaN. */
+  function pctNum(v) {
+    var s = String(v == null ? '' : v).trim().replace(',', '.');
+    if (s === '') return 0;
+    if (!/^(\d+\.?\d{0,2}|\.\d{1,2})$/.test(s)) return NaN;
+    var n = Number(s);
+    return n > 100 ? NaN : n;
+  }
+  function cleanPct(v) {
+    var s = String(v).replace(/[^\d.,]/g, '');
+    var i = s.search(/[.,]/);
+    if (i < 0) return s;
+    return s.slice(0, i + 1) + s.slice(i + 1).replace(/[.,]/g, '').slice(0, 2);
+  }
+  /** Nilai awal isian persen: angka > 0 jadi teks, selain itu kosong. */
+  function pv(x) { return typeof x === 'number' ? (x > 0 ? fmtPct(x) : '') : (x || ''); }
+  /** Rincian satu nota dihitung dari barisnya (juga untuk data lama di cache yang belum punya disc/pajak). */
+  function nb(n) {
+    var b = { sub: 0, disc: 0, tax: 0 };
+    n.items.forEach(function (l) {
+      var c = calc(l.qty, l.price, l.disc || 0, l.tax || 0);
+      b.sub += c.sub; b.disc += c.discAmt; b.tax += c.taxAmt;
+    });
+    return b;
+  }
+  function lineTag(l) {
+    var t = [];
+    if (l.disc > 0) t.push('Disc ' + fmtPct(l.disc) + '%');
+    if (l.tax > 0) t.push('Pajak ' + fmtPct(l.tax) + '%');
+    return t.length ? '<small class="tg">' + t.join(' · ') + '</small>' : '';
+  }
+  function brk(n) {
+    var b = nb(n);
+    if (!b.disc && !b.tax) return '';
+    return '<div class="brk">Subtotal ' + rp(b.sub) + (b.disc ? ' · Diskon −' + rp(b.disc) : '') +
+      (b.tax ? ' · Pajak +' + rp(b.tax) : '') + '</div>';
+  }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -341,8 +399,12 @@
   }
 
   function summaryCard(s) {
-    return '<div class="card summary"><div class="lbl">Total penjualan</div><div class="big">' + rp(s.total) +
-      '</div><div class="lbl">' + s.transactions + ' transaksi · ' + s.qty + ' item terjual</div></div>';
+    var parts = [];
+    if (s.discount) parts.push('Diskon −' + rp(s.discount));
+    if (s.tax) parts.push('Pajak +' + rp(s.tax));
+    var detail = parts.length ? '<div class="lbl">Subtotal ' + rp(s.subtotal) + ' · ' + parts.join(' · ') + '</div>' : '';
+    return '<div class="card summary"><div class="lbl">Total penjualan</div><div class="big">' + rp(s.total) + '</div>' + detail +
+      '<div class="lbl">' + s.transactions + ' transaksi · ' + s.qty + ' item terjual</div></div>';
   }
 
   function viewSales() {
@@ -359,8 +421,8 @@
         '<div class="grow"><div class="t">' + esc(n.outlet) + '</div>' +
         '<div class="s">' + esc(fmtDate(n.date)) + ' · ' + n.items.length + ' produk</div>' +
         '<ul class="lines">' + n.items.map(function (l) {
-          return '<li><span>' + esc(l.product) + '</span><span>' + l.qty + ' × ' + rp(l.price) + '</span></li>';
-        }).join('') + '</ul>' +
+          return '<li><span>' + esc(l.product) + lineTag(l) + '</span><span>' + l.qty + ' × ' + rp(l.price) + '</span></li>';
+        }).join('') + '</ul>' + brk(n) +
         (n.note ? '<div class="s" style="margin-top:4px">' + esc(n.note) + '</div>' : '') + '</div>' +
         '<div class="side"><div class="amt">' + rp(n.total) + '</div>' +
         '<button class="icon" data-act="del-nota" data-id="' + esc(n.nota) + '" aria-label="Hapus">🗑</button></div></div>';
@@ -560,7 +622,9 @@
         '<div class="cbw"><label>Nama produk<input class="lp cbin" autocomplete="off" placeholder="Ketuk untuk memilih produk" value="' + esc(l.product) + '"></label><div class="dd" hidden></div></div>' +
         '<div class="row"><label>Qty<input class="lq" inputmode="numeric" value="' + esc(l.qty) + '"></label>' +
         '<label>Harga satuan<input class="lr" inputmode="numeric" value="' + esc(l.price) + '"></label></div>' +
-        '<div class="sub">Subtotal: <b class="ls">0</b></div></div>';
+        '<div class="row"><label>Disc %<input class="ld" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(pv(l.disc)) + '"></label>' +
+        '<label>Pajak %<input class="lt" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(pv(l.tax)) + '"></label></div>' +
+        '<div class="sub"><div class="adj" hidden></div>Total: <b class="ls">0</b></div></div>';
     }
 
     var body =
@@ -568,8 +632,15 @@
       '<div class="cbw"><label>Outlet<input name="outlet" class="cbin" autocomplete="off" placeholder="Ketuk untuk memilih outlet" value="' + esc(s.outlet) + '"></label><div class="dd" hidden></div></div>' +
       '<div class="sec">Produk</div><div id="lines">' + s.items.map(lineHtml).join('') + '</div>' +
       '<button type="button" class="btn ghost" id="addline" style="padding-left:0">+ Tambah produk</button>' +
+      '<div class="alls"><div class="hint-sm">Diskon dan pajak untuk semua produk sekaligus. Tiap produk tetap bisa diubah sendiri.</div>' +
+      '<div class="row"><label>Disc % semua<input id="alld" inputmode="decimal" autocomplete="off" placeholder="0"></label>' +
+      '<label>Pajak % semua<input id="allt" inputmode="decimal" autocomplete="off" placeholder="0"></label></div></div>' +
       '<label>Catatan (opsional)<input name="note" value="' + esc(s.note) + '"></label>' +
-      '<div class="total">Total: <b id="tot">Rp 0</b></div>';
+      '<div class="tbox">' +
+      '<div class="trow"><span>Subtotal</span><b id="tsub">Rp 0</b></div>' +
+      '<div class="trow" id="tdr" hidden><span>Diskon</span><b id="tdisc"></b></div>' +
+      '<div class="trow" id="ttr" hidden><span>Pajak</span><b id="ttax"></b></div>' +
+      '<div class="trow grand"><span>Total</span><b id="tot">Rp 0</b></div></div>';
 
     var form = openModal(editing ? 'Ubah Penjualan' : 'Tambah Penjualan', body, function (f) {
       var v = fv(f);
@@ -590,7 +661,11 @@
         if (!product || (!byName(d.products, product) && !known[product])) return no + 'pilih produk dari daftar.';
         if (!(qty > 0)) return no + 'qty harus lebih dari 0.';
         if (!(price >= 0)) return no + 'isi harga satuan.';
-        items.push({ product: product, qty: qty, price: price });
+        var disc = pctNum(el.querySelector('.ld').value);
+        var tax = pctNum(el.querySelector('.lt').value);
+        if (isNaN(disc)) return no + 'Disc % harus antara 0 dan 100 (maksimal 2 angka desimal).';
+        if (isNaN(tax)) return no + 'Pajak % harus antara 0 dan 100 (maksimal 2 angka desimal).';
+        items.push({ product: product, qty: qty, price: price, disc: disc, tax: tax });
       }
       if (!items.length) return 'Isi minimal satu produk.';
       return call('saveNota', {
@@ -618,21 +693,66 @@
         if (first && !first.value) first.focus(); else form.elements.outlet.blur();
       }
     });
+    var alld = form.querySelector('#alld');
+    var allt = form.querySelector('#allt');
+    // Isian "semua": tampilkan nilai bila semua baris sama, kosong + "Beda" bila berbeda.
+    function uniform(sel) {
+      var first = null;
+      var inputs = box.querySelectorAll(sel);
+      for (var i = 0; i < inputs.length; i++) {
+        var n = pctNum(inputs[i].value);
+        if (isNaN(n) || (i > 0 && n !== first)) return null;
+        first = n;
+      }
+      return first > 0 ? fmtPct(first) : '';
+    }
+    function syncAll() {
+      [[alld, '.ld'], [allt, '.lt']].forEach(function (p) {
+        var u = uniform(p[1]);
+        p[0].value = u === null ? '' : u;
+        p[0].placeholder = u === null ? 'Beda' : '0';
+      });
+    }
     function refresh() {
-      var sum = 0;
+      var tot = { sub: 0, disc: 0, tax: 0, total: 0 };
       var rows = box.querySelectorAll('.line');
       Array.prototype.forEach.call(rows, function (el, i) {
         el.querySelector('.ln').textContent = 'Produk ' + (i + 1);
         el.querySelector('.x').style.visibility = rows.length > 1 ? 'visible' : 'hidden';
-        var sub = (parseInt(el.querySelector('.lq').value, 10) || 0) * (parseInt(el.querySelector('.lr').value, 10) || 0);
-        el.querySelector('.ls').textContent = rp(sub);
-        sum += sub;
+        var qty = parseInt(el.querySelector('.lq').value, 10) || 0;
+        var price = parseInt(el.querySelector('.lr').value, 10) || 0;
+        var dp = pctNum(el.querySelector('.ld').value);
+        var tp = pctNum(el.querySelector('.lt').value);
+        var c = calc(qty, price, isNaN(dp) ? 0 : dp, isNaN(tp) ? 0 : tp);
+        var parts = [];
+        if (c.discAmt) parts.push('Diskon ' + fmtPct(dp) + '% −' + rp(c.discAmt));
+        if (c.taxAmt) parts.push('Pajak ' + fmtPct(tp) + '% +' + rp(c.taxAmt));
+        var adj = el.querySelector('.adj');
+        adj.hidden = !parts.length;
+        adj.textContent = parts.length ? rp(c.sub) + ' · ' + parts.join(' · ') : '';
+        el.querySelector('.ls').textContent = rp(c.total);
+        tot.sub += c.sub; tot.disc += c.discAmt; tot.tax += c.taxAmt; tot.total += c.total;
       });
-      $('tot').textContent = rp(sum);
+      $('tsub').textContent = rp(tot.sub);
+      $('tdr').hidden = !tot.disc;
+      $('tdisc').textContent = '−' + rp(tot.disc);
+      $('ttr').hidden = !tot.tax;
+      $('ttax').textContent = '+' + rp(tot.tax);
+      $('tot').textContent = rp(tot.total);
     }
     form.addEventListener('input', function (e) {
       var t = e.target;
       if (t.classList.contains('lq') || t.classList.contains('lr')) t.value = t.value.replace(/\D/g, '');
+      if (t.classList.contains('ld') || t.classList.contains('lt')) {
+        t.value = cleanPct(t.value);
+        syncAll();
+      }
+      if (t === alld || t === allt) {
+        t.value = cleanPct(t.value);
+        t.placeholder = '0';
+        var sel = t === alld ? '.ld' : '.lt';
+        Array.prototype.forEach.call(box.querySelectorAll(sel), function (i) { i.value = t.value; });
+      }
       if (t.classList.contains('lp')) {
         var p = byName(d.products, t.value.trim());
         if (p) t.closest('.line').querySelector('.lr').value = String(p.price);
@@ -643,9 +763,10 @@
       var x = e.target.closest('.x');
       if (x) {
         x.closest('.line').remove();
+        syncAll();
         refresh();
       } else if (e.target.id === 'addline') {
-        box.insertAdjacentHTML('beforeend', lineHtml({ product: '', qty: '', price: '' }));
+        box.insertAdjacentHTML('beforeend', lineHtml({ product: '', qty: '', price: '', disc: alld.value, tax: allt.value }));
         refresh();
         var last = box.lastElementChild;
         attachLine(last);
@@ -657,6 +778,7 @@
     form.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault();
     });
+    syncAll();
     refresh();
   }
 
@@ -718,9 +840,12 @@
     var prods = [];
     var total = 0;
     var qty = 0;
+    var sum = { sub: 0, disc: 0, tax: 0 };
     orders.forEach(function (n) {
       total += n.total;
       qty += n.qty;
+      var b = nb(n);
+      sum.sub += b.sub; sum.disc += b.disc; sum.tax += b.tax;
       n.items.forEach(function (it) {
         var g = map[it.product];
         if (!g) { g = map[it.product] = { label: it.product, qty: 0, total: 0 }; prods.push(g); }
@@ -734,14 +859,14 @@
       return '<div class="card" style="padding:10px 12px">' +
         '<div style="display:flex;justify-content:space-between;gap:8px"><b>' + esc(fmtDate(n.date)) + '</b><b>' + rp(n.total) + '</b></div>' +
         '<ul class="lines">' + n.items.map(function (l) {
-          return '<li><span>' + esc(l.product) + '</span><span>' + l.qty + ' × ' + rp(l.price) + '</span></li>';
-        }).join('') + '</ul>' +
+          return '<li><span>' + esc(l.product) + lineTag(l) + '</span><span>' + l.qty + ' × ' + rp(l.price) + '</span></li>';
+        }).join('') + '</ul>' + brk(n) +
         (n.note ? '<div class="s" style="margin-top:4px;font-size:13px;color:var(--muted)">' + esc(n.note) + '</div>' : '') + '</div>';
     }).join('');
 
     openInfo(name,
       '<p class="help" style="margin-bottom:10px">' + esc(monthLabel(state.month)) + '</p>' +
-      summaryCard({ total: total, transactions: orders.length, qty: qty }) +
+      summaryCard({ total: total, transactions: orders.length, qty: qty, subtotal: sum.sub, discount: sum.disc, tax: sum.tax }) +
       '<h3>Produk yang diorder</h3>' + bars(prods) +
       '<h3>Riwayat order</h3>' + history);
   }
