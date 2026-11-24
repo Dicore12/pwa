@@ -18,4 +18,3 @@
     { "name": "Tambah penjualan", "short_name": "Tambah", "url": "./?add=sale", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }
-
