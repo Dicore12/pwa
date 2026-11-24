@@ -56,6 +56,11 @@
   #view.busy { opacity: .5; transition: opacity .15s; }
 
   h3 { margin: 18px 0 8px; font-size: 16px; }
+  .sechead { display: flex; align-items: center; justify-content: space-between; width: 100%; margin: 18px 0 8px;
+    padding: 10px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    font-size: 16px; font-weight: 700; text-align: left; }
+  .sechead small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .sechead:active { background: var(--soft); }
   .bar-row { margin-bottom: 12px; }
   .bar-row .top { display: flex; justify-content: space-between; gap: 8px; }
   .bar { height: 8px; border-radius: 4px; background: var(--soft); overflow: hidden; margin: 4px 0; }
@@ -173,7 +178,7 @@
   var SYNC_MS = Number(window.RS_SYNC_MS) || 20000;
 
   var state = { tab: 'sales', month: ym(new Date()), data: null, sig: '', error: null, busy: false,
-                offlineAt: 0, loadedAt: 0, pending: null, onPending: null };
+                offlineAt: 0, loadedAt: 0, pending: null, onPending: null, openProducts: false };
   var installEvt = null;
   var seq = 0;          // setiap pemuatan baru membuat balasan pemuatan lama diabaikan
   var inflight = 0;
@@ -266,6 +271,8 @@
       return c && c.url && c.token ? c : null;
     } catch (e) { return null; }
   }
+  /** Nama sales di HP ini: penjualan hanya tampil di HP dengan nama yang sama. Kosong = data tanpa nama. */
+  function owner() { var c = getCfg(); return c && c.owner ? String(c.owner).trim() : ''; }
   function setCfg(c) { try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (e) { /* abaikan */ } }
   function clearCfg() { try { localStorage.removeItem(CFG_KEY); } catch (e) { /* abaikan */ } }
   function saveCache(month, data) {
@@ -329,7 +336,7 @@
     var my = ++seq;
     inflight++;
     if (!opts.silent) { state.busy = true; state.error = null; render(); }
-    return rawCall(cfg, 'load', [state.month]).then(function (data) {
+    return rawCall(cfg, 'load', [state.month, cfg.owner || '']).then(function (data) {
       if (my !== seq) return;
       var wasOffline = !!state.offlineAt;
       state.busy = false;
@@ -412,7 +419,8 @@
         ? '<div class="mnav"><button class="icon" data-act="prev" aria-label="Bulan sebelumnya">‹</button><b>' +
           esc(monthLabel(state.month)) + '</b><button class="icon" data-act="next" aria-label="Bulan berikutnya">›</button></div>'
         : '') +
-      '<div class="sync">' + (state.data && state.loadedAt && !state.offlineAt ? 'Sinkron otomatis · diperbarui ' + clock(state.loadedAt) : '') + '</div>';
+      '<div class="sync">' + (getCfg() ? 'Sales: ' + esc(owner() || '(tanpa nama)') : '') +
+      (state.data && state.loadedAt && !state.offlineAt ? ' · diperbarui ' + clock(state.loadedAt) : '') + '</div>';
   }
 
   function renderNav() {
@@ -516,7 +524,10 @@
   function viewRecap() {
     var d = state.data;
     return summaryCard(d.summary) +
-      '<h3>Per Produk</h3>' + bars(d.byProduct) +
+      '<button type="button" class="sechead" data-act="toggle-products" aria-expanded="' + state.openProducts + '">' +
+      '<span>Per Produk<small>' + (state.openProducts ? 'Ketuk untuk menutup' : d.byProduct.length + ' produk · ketuk untuk melihat') + '</small></span>' +
+      '<span class="chev">' + (state.openProducts ? '▾' : '▸') + '</span></button>' +
+      (state.openProducts ? bars(d.byProduct) : '') +
       '<h3>Per Outlet</h3>' + bars(d.byOutlet, 'outlet-detail');
   }
 
@@ -744,7 +755,7 @@
       }
       if (!items.length) return 'Isi minimal satu produk.';
       return call('saveNota', {
-        nota: editing ? editing.nota : '', date: v.date, outlet: outlet, note: v.note, items: items
+        nota: editing ? editing.nota : '', owner: owner(), date: v.date, outlet: outlet, note: v.note, items: items
       }).then(function () { state.month = v.date.slice(0, 7); });
     });
 
@@ -943,6 +954,9 @@
       '<b>Rekap Sales &gt; Buat kode akses baru</b> di Google Sheet Anda.</p>' +
       '<label>URL Web app<input name="url" inputmode="url" autocomplete="off" autocapitalize="off" value="' + esc(cfg.url) + '"></label>' +
       '<label>Kode akses<input name="token" type="password" autocomplete="off" value="' + esc(cfg.token) + '"></label>' +
+      '<label>Nama sales (memisahkan data tiap HP)<input name="owner" maxlength="60" autocomplete="off" placeholder="Kosongkan untuk data lama / tanpa nama" value="' + esc(cfg.owner || '') + '"></label>' +
+      '<p class="help">Penjualan yang Anda input hanya tampil di HP dengan nama yang <b>sama</b>. Beri nama berbeda di tiap HP ' +
+      'supaya datanya tidak saling muncul. Produk dan outlet tetap dipakai bersama.</p>' +
       (connected ? '<button type="button" class="btn ghost" id="logout" style="color:var(--danger);padding-left:0">Putuskan sambungan</button>' : ''),
       function (f) {
         var v = fv(f);
@@ -952,9 +966,11 @@
           return 'URL harus alamat Web app Apps Script, berakhiran /exec.';
         }
         if (!token) return 'Kode akses wajib diisi.';
-        var c = { url: url, token: token };
-        return rawCall(c, 'load', [state.month]).then(function () {
-          if (!getCfg() || getCfg().url !== url) clearCache();
+        var owner = v.owner.trim().slice(0, 60);
+        var c = { url: url, token: token, owner: owner };
+        return rawCall(c, 'load', [state.month, owner]).then(function () {
+          var old = getCfg();
+          if (!old || old.url !== url || (old.owner || '') !== owner) clearCache();
           setCfg(c);
           state.data = null;
           state.sig = '';
@@ -988,7 +1004,7 @@
 
   document.addEventListener('click', function (e) {
     var tab = e.target.closest('[data-tab]');
-    if (tab) { state.tab = tab.getAttribute('data-tab'); render(); window.scrollTo(0, 0); return; }
+    if (tab) { state.tab = tab.getAttribute('data-tab'); state.openProducts = false; render(); window.scrollTo(0, 0); return; }
     if (e.target.closest('#fab')) {
       if (!state.data) return;
       ({ sales: saleForm, products: productForm, outlets: outletForm }[state.tab] || function () {})();
@@ -1004,6 +1020,7 @@
       state.sig = '';
       reload();
     } else if (act === 'retry') { reload(); }
+    else if (act === 'toggle-products') { state.openProducts = !state.openProducts; render(); }
     else if (act === 'refresh') { reload({ silent: !!d, manual: true }); }
     else if (act === 'settings') { openSetup(!getCfg()); }
     else if (act === 'install') {
@@ -1020,7 +1037,7 @@
       var nn = byNota(d.notas, id);
       if (nn) confirmDelete('Hapus Penjualan',
         'Hapus penjualan <b>' + esc(nn.outlet) + '</b> tanggal ' + esc(fmtDate(nn.date)) + ' (' + nn.items.length +
-        ' produk, ' + rp(nn.total) + ')? Tindakan ini tidak bisa dibatalkan.', function () { return call('deleteNota', id); });
+        ' produk, ' + rp(nn.total) + ')? Tindakan ini tidak bisa dibatalkan.', function () { return call('deleteNota', id, owner()); });
     } else if (act === 'del-product') {
       e.stopPropagation();
       var pp = d.products.filter(function (x) { return x.id === id; })[0];
