@@ -1,62 +1,58 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<title>Rekap Sales</title>
-<meta name="description" content="Catat dan rekap penjualan, data tersimpan di Google Sheets.">
-<meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#10131a" media="(prefers-color-scheme: dark)">
-<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a73e8">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Rekap Sales">
+<title>Rekap Sales</title>
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <style>
   :root {
-    --bg: #f6f7fb; --card: #ffffff; --text: #1b1f2a; --muted: #667085;
-    --primary: #1a73e8; --on-primary: #ffffff; --soft: #e8f0fe; --border: #e4e7ec;
-    --danger: #d92d20; --shadow: 0 1px 3px rgba(16, 24, 40, .12);
+    --bg: #f4f6fb; --card: #ffffff; --text: #1b2330; --muted: #667085; --primary: #1a73e8;
+    --on-primary: #ffffff; --border: #e1e6ef; --soft: #eef2fa; --danger: #d93025;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #10131a; --card: #1a1f2b; --text: #eceff5; --muted: #9aa4b5;
-      --primary: #8ab4f8; --on-primary: #0b1220; --soft: #1f2a44; --border: #2a3140;
-      --danger: #f97066; --shadow: none;
-    }
+    :root { --bg: #10141b; --card: #1a202b; --text: #e8ecf3; --muted: #98a2b3; --primary: #6ea8fe;
+      --on-primary: #0b1220; --border: #2a3342; --soft: #232b38; --danger: #ff7b72; }
   }
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .app { max-width: 640px; margin: 0 auto; padding: 0 16px calc(160px + env(safe-area-inset-bottom)); }
-
-  header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 12px 0 8px; }
-  header h1 { margin: 0 0 4px; font-size: 20px; }
-  .monthbar { display: flex; align-items: center; justify-content: space-between; }
-  .monthbar b { font-size: 16px; }
-
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   button { font: inherit; color: inherit; cursor: pointer; }
-  .icon { background: none; border: 0; padding: 8px 10px; border-radius: 8px; font-size: 18px; line-height: 1; }
-  .icon:active { background: var(--soft); }
-  .btn { background: var(--primary); color: var(--on-primary); border: 0; border-radius: 10px;
-    padding: 10px 18px; font-weight: 600; }
-  .btn.ghost { background: transparent; color: var(--primary); }
-  .btn.danger { background: var(--danger); color: #fff; }
-  .btn:disabled { opacity: .5; }
+  .app { max-width: 640px; margin: 0 auto; padding: 12px 16px calc(150px + env(safe-area-inset-bottom)); }
+  h1 { margin: 0 0 4px; font-size: 22px; }
 
-  .card { background: var(--card); border-radius: 12px; box-shadow: var(--shadow);
-    border: 1px solid var(--border); padding: 12px 14px; margin: 0 0 8px; }
-  .summary { background: var(--soft); border-color: transparent; padding: 16px; margin-bottom: 12px; }
-  .summary .lbl { font-size: 13px; color: var(--muted); }
+  .toprow { display: flex; align-items: center; justify-content: space-between; }
+  .toprow h1 { margin: 0 0 4px; }
+  .toprow .acts { display: flex; align-items: center; gap: 4px; }
+  .mnav { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 2px; }
+  .mnav b { font-size: 16px; }
+  .sync { text-align: center; font-size: 12px; color: var(--muted); margin: 0 0 10px; min-height: 1.2em; }
+
+  .btn { background: var(--primary); color: var(--on-primary); border: 0; border-radius: 10px; padding: 10px 16px; font-weight: 600; }
+  .btn.ghost { background: none; color: var(--primary); }
+  .btn.danger { background: var(--danger); color: #fff; }
+  .btn.small { padding: 6px 12px; font-size: 13px; }
+  .btn[disabled] { opacity: .6; }
+  .icon { background: none; border: 0; font-size: 18px; padding: 6px 8px; border-radius: 8px; line-height: 1; }
+  .icon:active { background: var(--soft); }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+  .card.item { display: flex; gap: 10px; align-items: center; cursor: pointer; }
+  .card.item:active { background: var(--soft); }
+  .grow { flex: 1; min-width: 0; }
+  .t { font-weight: 600; overflow-wrap: anywhere; }
+  .s { color: var(--muted); font-size: 13px; }
+  .amt { font-weight: 700; white-space: nowrap; }
   .summary .big { font-size: 26px; font-weight: 700; margin: 2px 0; }
-  .item { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-  .item .grow { flex: 1; min-width: 0; }
-  .item .t { font-weight: 600; overflow-wrap: anywhere; }
-  .item .s { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-  .item .amt { font-weight: 700; white-space: nowrap; }
-  .empty { text-align: center; color: var(--muted); padding: 36px 8px; }
-  .hint { background: var(--soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; }
+  .lbl { color: var(--muted); font-size: 13px; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 12px; }
+  .hint { background: var(--soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
   #view.busy { opacity: .5; transition: opacity .15s; }
 
   h3 { margin: 18px 0 8px; font-size: 16px; }
@@ -89,22 +85,18 @@
   input { display: block; width: 100%; margin-top: 4px; padding: 10px 12px; font: inherit; color: var(--text);
     background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
   input:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
-  .row { display: flex; gap: 10px; } .row label { flex: 1; }
-  .total { margin: 4px 0 8px; font-size: 16px; }
+  .row { display: flex; gap: 10px; } .row label { flex: 1; min-width: 0; }
   .err { color: var(--danger); min-height: 1.2em; margin: 4px 0; }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 
   #toast { position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: #323232; color: #fff; padding: 10px 16px; border-radius: 10px; z-index: 30;
-    opacity: 0; pointer-events: none; transition: opacity .2s; }
+    opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; text-align: center; }
   #toast.show { opacity: .95; }
 
-  .toprow { display: flex; align-items: center; justify-content: space-between; }
-  .toprow h1 { margin: 0 0 4px; }
-  .toprow .acts { display: flex; align-items: center; gap: 4px; }
-  .btn.small { padding: 6px 12px; font-size: 13px; }
   .banner { background: #fff4e5; color: #7a4b00; border-radius: 10px; padding: 8px 12px;
     margin-bottom: 12px; font-size: 13px; }
+  .banner[hidden] { display: none; }
   @media (prefers-color-scheme: dark) { .banner { background: #3a2c10; color: #ffd591; } }
   .help { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
 
@@ -177,11 +169,16 @@
     { id: 'outlets', label: 'Outlet', icon: '🏪' },
     { id: 'recap', label: 'Rekap', icon: '📊' }
   ];
+  // Sinkronisasi otomatis: cek perubahan dari perangkat lain tiap beberapa detik selama aplikasi terlihat.
+  var SYNC_MS = Number(window.RS_SYNC_MS) || 20000;
 
-  var state = { tab: 'sales', month: ym(new Date()), data: null, error: null, busy: false,
-                offlineAt: 0, loadedAt: 0 };
+  var state = { tab: 'sales', month: ym(new Date()), data: null, sig: '', error: null, busy: false,
+                offlineAt: 0, loadedAt: 0, pending: null, onPending: null };
   var installEvt = null;
-  var seq = 0;
+  var seq = 0;          // setiap pemuatan baru membuat balasan pemuatan lama diabaikan
+  var inflight = 0;
+  var lastErr = '';
+  var addShortcutDone = false;
 
   function $(id) { return document.getElementById(id); }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -194,6 +191,14 @@
   function monthLabel(m) { var p = m.split('-'); return MONTHS[Number(p[1]) - 1] + ' ' + p[0]; }
   function fmtDate(s) { var p = s.split('-'); return Number(p[2]) + ' ' + MONTHS[Number(p[1]) - 1].slice(0, 3) + ' ' + p[0]; }
   function rp(n) { return 'Rp ' + Number(n || 0).toLocaleString('id-ID'); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function clock(ms) {
+    return new Date(ms).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  }
 
   // Hitungan harus sama persis dengan calc_ di Code.gs: diskon dari subtotal, pajak dari subtotal setelah diskon.
   // Persen dikali 100 dulu supaya hitungan bulat; tiap nominal dibulatkan ke rupiah (setengah naik).
@@ -242,154 +247,198 @@
     return '<div class="brk">Subtotal ' + rp(b.sub) + (b.disc ? ' · Diskon −' + rp(b.disc) : '') +
       (b.tax ? ' · Pajak +' + rp(b.tax) : '') + '</div>';
   }
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-  function errMsg(e) {
-    var m = (e && e.message) ? e.message : String(e);
-    return m === 'NETWORK'
-      ? 'Tidak bisa terhubung ke server. Periksa koneksi internet (atau pastikan deploy Web app memakai akses "Anyone").'
-      : m;
-  }
 
-  var CFG_KEY = 'rs-config';
-  var memCfg = null;
-  function getCfg() {
-    if (memCfg) return memCfg;
-    try {
-      var c = JSON.parse(localStorage.getItem(CFG_KEY));
-      return c && c.url && c.token ? c : null;
-    } catch (e) { return null; }
-  }
-  function setCfg(c) {
-    memCfg = c;
-    try { if (c) localStorage.setItem(CFG_KEY, JSON.stringify(c)); else localStorage.removeItem(CFG_KEY); } catch (e) {}
-  }
-  function clearCache() {
-    try {
-      Object.keys(localStorage).forEach(function (k) { if (k.indexOf('rs-cache-') === 0) localStorage.removeItem(k); });
-    } catch (e) {}
-  }
-  function cacheKey(m) { return 'rs-cache-' + m; }
-  function readCache(m) {
-    try {
-      var c = JSON.parse(localStorage.getItem(cacheKey(m)));
-      return c && c.data && Array.isArray(c.data.notas) && c.data.notas.every(function (n) { return Array.isArray(n.items); }) ? c : null;
-    } catch (e) { return null; }
-  }
-  function writeCache(m, d) {
-    try { localStorage.setItem(cacheKey(m), JSON.stringify({ at: Date.now(), data: d })); } catch (e) {}
-  }
-
-  // POST text/plain supaya tidak memicu preflight CORS (Apps Script tidak menjawab OPTIONS).
-  function rawCall(cfg, action, args) {
-    return fetch(cfg.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ token: cfg.token, action: action, args: args || [] })
-    }).then(function (r) { return r.text(); }, function () {
-      throw new Error('NETWORK');
-    }).then(function (txt) {
-      var j;
-      try { j = JSON.parse(txt); } catch (e) {
-        throw new Error('Respons tidak valid. Pastikan URL benar dan deploy Web app memakai akses "Anyone".');
-      }
-      if (!j.ok) throw new Error(j.error || 'Terjadi kesalahan.');
-      return j.data;
-    });
-  }
-
-  function call(fn) {
-    var cfg = getCfg();
-    if (!cfg) return Promise.reject(new Error('Aplikasi belum disetel.'));
-    return rawCall(cfg, fn, Array.prototype.slice.call(arguments, 1));
-  }
-
+  var toastT = 0;
   function toast(msg) {
     var t = $('toast');
     t.textContent = msg;
     t.classList.add('show');
-    clearTimeout(toast.timer);
-    toast.timer = setTimeout(function () { t.classList.remove('show'); }, 1800);
+    clearTimeout(toastT);
+    toastT = setTimeout(function () { t.classList.remove('show'); }, 2400);
   }
 
-  /* ---------------------------------------------------------- data */
+  /* ------------------------------------------------------------ penyimpanan lokal */
+  var CFG_KEY = 'rs-config';
+  var CACHE_PREFIX = 'rs-cache-';
+  function getCfg() {
+    try {
+      var c = JSON.parse(localStorage.getItem(CFG_KEY) || 'null');
+      return c && c.url && c.token ? c : null;
+    } catch (e) { return null; }
+  }
+  function setCfg(c) { try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (e) { /* abaikan */ } }
+  function clearCfg() { try { localStorage.removeItem(CFG_KEY); } catch (e) { /* abaikan */ } }
+  function saveCache(month, data) {
+    try { localStorage.setItem(CACHE_PREFIX + month, JSON.stringify({ at: Date.now(), data: data })); } catch (e) { /* abaikan */ }
+  }
+  function validData(d) {
+    return !!d && Array.isArray(d.notas) && Array.isArray(d.products) && Array.isArray(d.outlets) &&
+      d.notas.every(function (n) { return n && Array.isArray(n.items); });
+  }
+  function readCache(month) {
+    try {
+      var c = JSON.parse(localStorage.getItem(CACHE_PREFIX + month) || 'null');
+      return c && validData(c.data) ? c : null;
+    } catch (e) { return null; }
+  }
+  function clearCache() {
+    try {
+      Object.keys(localStorage).forEach(function (k) {
+        if (k.indexOf(CACHE_PREFIX) === 0) localStorage.removeItem(k);
+      });
+    } catch (e) { /* abaikan */ }
+  }
 
-  function reload() {
-    if (!getCfg()) {
-      state.data = null;
-      state.busy = false;
-      render();
-      openSetup(true);
-      return Promise.resolve();
-    }
-    var mine = ++seq;
-    state.busy = true;
-    state.error = null;
-    render();
-    return call('load', state.month).then(function (d) {
-      if (mine !== seq) return;
-      state.data = d;
-      state.busy = false;
-      state.offlineAt = 0;
-      state.loadedAt = Date.now();
-      writeCache(state.month, d);
-      render();
-    }).catch(function (e) {
-      if (mine !== seq) return;
-      state.busy = false;
-      var c = readCache(state.month);
-      if (c && e && e.message === 'NETWORK') {
-        state.data = c.data;
-        state.offlineAt = c.at;
-      } else {
-        state.error = errMsg(e);
+  /* ------------------------------------------------------------ panggilan API */
+  function rawCall(cfg, action, args) {
+    return fetch(cfg.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // text/plain: tanpa preflight CORS
+      body: JSON.stringify({ token: cfg.token, action: action, args: args || [] }),
+      redirect: 'follow'
+    }).then(function (res) {
+      return res.text();
+    }, function () {
+      var e = new Error('Tidak bisa terhubung ke server. Periksa internet dan alamat Web app.');
+      e.network = true;
+      throw e;
+    }).then(function (text) {
+      var j;
+      try { j = JSON.parse(text); } catch (e) {
+        throw new Error('Respons tidak valid dari server. Pastikan URL benar dan kode terbaru sudah di-deploy sebagai New version.');
       }
-      render();
+      if (!j || j.ok !== true) throw new Error((j && j.error) || 'Terjadi kesalahan.');
+      return j.data;
+    });
+  }
+  function call(action) {
+    var cfg = getCfg();
+    if (!cfg) return Promise.reject(new Error('Belum terhubung ke Google Sheets.'));
+    return rawCall(cfg, action, Array.prototype.slice.call(arguments, 1));
+  }
+
+  /* ------------------------------------------------------------ pemuatan data + sinkronisasi */
+  /**
+   * opts.silent: pemuatan latar belakang (sinkronisasi), tidak mengganggu layar.
+   * opts.manual: dari tombol segarkan, selalu beri tahu hasilnya.
+   */
+  function reload(opts) {
+    opts = opts || {};
+    var cfg = getCfg();
+    if (!cfg) { state.data = null; render(); return Promise.resolve(); }
+    var my = ++seq;
+    inflight++;
+    if (!opts.silent) { state.busy = true; state.error = null; render(); }
+    return rawCall(cfg, 'load', [state.month]).then(function (data) {
+      if (my !== seq) return;
+      var wasOffline = !!state.offlineAt;
+      state.busy = false;
+      state.error = null;
+      state.offlineAt = 0;
+      lastErr = '';
+      saveCache(state.month, data);
+      applyData(data, opts, wasOffline);
+    }).catch(function (err) {
+      if (my !== seq) return;
+      state.busy = false;
+      if (err.network) {
+        var cached = state.data ? null : readCache(state.month);
+        if (cached) { state.data = cached.data; state.sig = JSON.stringify(cached.data); state.offlineAt = cached.at; state.error = null; }
+        else if (state.data) { state.offlineAt = state.offlineAt || Date.now(); }
+        else { state.error = err.message; }
+      } else if (!state.data) {
+        state.error = err.message;
+      } else if (opts.silent && err.message !== lastErr) {
+        toast(err.message);
+      }
+      lastErr = err.message;
+      if (!opts.silent || !modalOpen()) render();
+      else if (opts.manual) toast(err.message);
+    }).then(function () {
+      inflight--;
     });
   }
 
-  /* -------------------------------------------------------- render */
-
-  function render() {
-    var showMonth = state.tab === 'sales' || state.tab === 'recap';
-    $('top').innerHTML = '<div class="toprow"><h1>Rekap Sales</h1><div class="acts">' +
-      (installEvt ? '<button class="btn small" data-act="install">Pasang</button>' : '') +
-      '<button class="icon" data-act="settings" aria-label="Pengaturan">⚙️</button></div></div>' + (showMonth
-      ? '<div class="monthbar"><button class="icon" data-act="prev" aria-label="Bulan sebelumnya">‹</button>' +
-        '<b>' + esc(monthLabel(state.month)) + '</b>' +
-        '<button class="icon" data-act="next" aria-label="Bulan berikutnya">›</button></div>'
-      : '');
-
-    $('nav').innerHTML = TABS.map(function (t) {
-      return '<button data-tab="' + t.id + '"' + (t.id === state.tab ? ' aria-current="page"' : '') +
-        '><span>' + t.icon + '</span>' + t.label + '</button>';
-    }).join('');
-
-    var v = $('view');
-    $('fab').style.display = (state.tab === 'recap' || !state.data) ? 'none' : 'flex';
-
-    if (!getCfg()) {
-      v.className = '';
-      v.innerHTML = '<div class="empty">Aplikasi belum terhubung ke Google Sheets.<br><br>' +
-        '<button class="btn" data-act="settings">Setel sekarang</button></div>';
-      $('fab').style.display = 'none';
+  function applyData(data, opts, wasOffline) {
+    var sig = JSON.stringify(data);
+    var changed = sig !== state.sig;
+    if (opts.silent && modalOpen()) {
+      // Ada form terbuka: jangan ubah layar di bawahnya. Terapkan setelah ditutup.
+      if (changed || state.pending) {
+        state.pending = data;
+        if (state.onPending) state.onPending(data);
+      }
       return;
     }
-    if (state.error) {
-      v.className = '';
-      v.innerHTML = '<div class="empty">Gagal memuat data.<br><small>' + esc(state.error) +
-        '</small><br><br><button class="btn" data-act="retry">Coba lagi</button></div>';
+    state.pending = null;
+    state.data = data;
+    state.sig = sig;
+    state.loadedAt = Date.now();
+    if (!changed && opts.silent && !opts.manual && !wasOffline && state.shown) {
+      renderTop();                  // tidak ada yang berubah: layar tidak digambar ulang, hanya jam "diperbarui"
+      return;
+    }
+    render();
+    if (opts.silent && changed && state.shown) toast('Data diperbarui dari perangkat lain');
+    if (opts.manual) toast(changed ? 'Data diperbarui' : 'Sudah yang terbaru');
+    state.shown = true;
+    runShortcut();
+  }
+
+  function syncNow(onEvent) {
+    if (!getCfg() || !state.data || inflight) return;
+    if (document.visibilityState !== 'visible') return;
+    // Kembali ke aplikasi / sinyal pulih: cek segera, kecuali baru saja memuat.
+    if (onEvent && Date.now() - state.loadedAt < 2500 && !state.offlineAt) return;
+    reload({ silent: true });
+  }
+  function startSync() {
+    setInterval(function () { syncNow(false); }, SYNC_MS);
+    function onEvent() { syncNow(true); }
+    document.addEventListener('visibilitychange', onEvent);
+    window.addEventListener('focus', onEvent);
+    window.addEventListener('online', onEvent);
+  }
+
+  /* ------------------------------------------------------------ tampilan */
+  function renderTop() {
+    var showMonth = state.tab === 'sales' || state.tab === 'recap';
+    $('top').innerHTML =
+      '<div class="toprow"><h1>Rekap Sales</h1><div class="acts">' +
+      (installEvt ? '<button class="btn small" data-act="install">Pasang</button>' : '') +
+      '<button class="icon" data-act="refresh" aria-label="Segarkan data" title="Segarkan data">⟳</button>' +
+      '<button class="icon" data-act="settings" aria-label="Pengaturan">⚙️</button></div></div>' +
+      (showMonth
+        ? '<div class="mnav"><button class="icon" data-act="prev" aria-label="Bulan sebelumnya">‹</button><b>' +
+          esc(monthLabel(state.month)) + '</b><button class="icon" data-act="next" aria-label="Bulan berikutnya">›</button></div>'
+        : '') +
+      '<div class="sync">' + (state.data && state.loadedAt && !state.offlineAt ? 'Sinkron otomatis · diperbarui ' + clock(state.loadedAt) : '') + '</div>';
+  }
+
+  function renderNav() {
+    $('nav').innerHTML = TABS.map(function (t) {
+      return '<button data-tab="' + t.id + '"' + (state.tab === t.id ? ' aria-current="page"' : '') +
+        '><span>' + t.icon + '</span>' + t.label + '</button>';
+    }).join('');
+  }
+
+  function render() {
+    renderTop();
+    renderNav();
+    $('fab').style.display = state.tab === 'recap' || !getCfg() ? 'none' : 'flex';
+    var v = $('view');
+    v.className = state.busy && state.data ? 'busy' : '';
+    if (!getCfg()) {
+      v.innerHTML = '<div class="empty">Belum terhubung ke Google Sheets.<br><br>' +
+        '<button class="btn" data-act="settings">Hubungkan</button></div>';
       return;
     }
     if (!state.data) {
-      v.className = '';
-      v.innerHTML = '<div class="empty">Memuat…</div>';
+      v.innerHTML = state.error
+        ? '<div class="empty">Gagal memuat data.<br>' + esc(state.error) + '<br><br><button class="btn" data-act="retry">Coba lagi</button></div>'
+        : '<div class="empty">Memuat data…</div>';
       return;
     }
-    v.className = state.busy ? 'busy' : '';
     var banner = state.offlineAt
       ? '<div class="banner">Tidak terhubung. Menampilkan data terakhir (' +
         esc(new Date(state.offlineAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) +
@@ -455,158 +504,169 @@
     if (!rows.length) return '<div class="empty" style="padding:12px">Belum ada data.</div>';
     var max = Math.max.apply(null, rows.map(function (r) { return r.total; })) || 1;
     return rows.map(function (r) {
+      var pct = Math.max(2, Math.round(r.total / max * 100));
       return '<div class="bar-row' + (tapAct ? ' tap' : '') + '"' +
-        (tapAct ? ' data-act="' + tapAct + '" data-id="' + esc(r.label) + '" role="button" tabindex="0"' : '') + '>' +
-        '<div class="top"><span>' + esc(r.label) + (tapAct ? ' <span class="chev">›</span>' : '') + '</span><b>' + rp(r.total) +
-        '</b></div><div class="bar"><i style="width:' + Math.round(r.total / max * 100) + '%"></i></div>' +
-        '<div class="s" style="font-size:13px;color:var(--muted)">' + r.qty + ' item terjual</div></div>';
+        (tapAct ? ' data-act="' + tapAct + '" data-name="' + esc(r.label) + '" role="button" tabindex="0"' : '') + '>' +
+        '<div class="top"><span>' + esc(r.label) + (tapAct ? '<span class="chev"> ›</span>' : '') + '</span><b>' + rp(r.total) + '</b></div>' +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+        '<div class="s">' + r.qty + ' item</div></div>';
     }).join('');
   }
 
   function viewRecap() {
     var d = state.data;
-    return summaryCard(d.summary) + '<h3>Per Produk</h3>' + bars(d.byProduct) +
-      '<h3>Per Outlet</h3><p class="hint-sm">Ketuk outlet untuk melihat produk yang diorder.</p>' +
-      bars(d.byOutlet, 'outlet-detail');
+    return summaryCard(d.summary) +
+      '<h3>Per Produk</h3>' + bars(d.byProduct) +
+      '<h3>Per Outlet</h3>' + bars(d.byOutlet, 'outlet-detail');
   }
 
-  /* -------------------------------------------------------- modal */
+  /* ------------------------------------------------------------ lembar (modal) */
+  function modalOpen() { return !!$('modal-root').firstChild; }
 
-  function closeModal() { $('modal-root').innerHTML = ''; }
-
-  function openModal(title, body, onSave, saveLabel, danger) {
-    var root = $('modal-root');
-    root.innerHTML = '<div class="overlay"><div class="sheet" role="dialog" aria-modal="true">' +
-      '<h2>' + esc(title) + '</h2><form novalidate>' + body +
-      '<p class="err" id="err"></p><div class="actions">' +
-      '<button type="button" class="btn ghost" id="cancel">Batal</button>' +
-      '<button type="submit" class="btn' + (danger ? ' danger' : '') + '" id="save">' + esc(saveLabel || 'Simpan') +
-      '</button></div></form></div></div>';
-    var form = root.querySelector('form');
-    var err = $('err');
-    var save = $('save');
-    $('cancel').onclick = closeModal;
-    form.addEventListener('input', function () { err.textContent = ''; });
-    root.querySelector('.overlay').addEventListener('mousedown', function (e) {
-      if (e.target === e.currentTarget) closeModal();
-    });
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      err.textContent = '';
-      var out;
-      try { out = onSave(form); } catch (ex) { out = errMsg(ex); }
-      if (typeof out === 'string') { err.textContent = out; return; }
-      save.disabled = true;
-      out.then(function () {
-        closeModal();
-        toast(danger ? 'Terhapus' : 'Tersimpan');
-        reload();
-      }).catch(function (ex) {
-        save.disabled = false;
-        err.textContent = errMsg(ex);
-      });
-    });
-    var first = form.querySelector('input');
-    if (first && !first.value) first.focus();
-    return form;
-  }
-
-  function confirmDelete(text, fn, id) {
-    openModal('Hapus data?', '<p>' + esc(text) + '</p>', function () { return call(fn, id); }, 'Hapus', true);
+  function closeModal() {
+    $('modal-root').innerHTML = '';
+    state.onPending = null;
+    if (state.pending) {            // perubahan dari perangkat lain yang tertahan selama form terbuka
+      var d = state.pending;
+      state.pending = null;
+      applyData(d, { silent: true });
+    }
   }
 
   function fv(f) {
-    var o = {};
-    Array.prototype.forEach.call(f.elements, function (e) { if (e.name) o[e.name] = e.value; });
-    return o;
+    var v = {};
+    Array.prototype.forEach.call(f.elements, function (el) { if (el.name) v[el.name] = el.value; });
+    return v;
   }
-
-  function byId(list, id) {
-    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
-    return null;
-  }
-
   function digitsOnly(input) {
     input.addEventListener('input', function () { input.value = input.value.replace(/\D/g, ''); });
   }
 
-  /* ---------------------------------------------------- forms */
+  /** onSave(form) mengembalikan teks error, atau Promise (sukses = tutup + muat ulang). */
+  function openModal(title, body, onSave, saveLabel) {
+    var root = $('modal-root');
+    root.innerHTML = '<div class="overlay"><form class="sheet" role="dialog" aria-modal="true" novalidate>' +
+      '<h2>' + esc(title) + '</h2>' + body + '<div class="err" id="err" role="alert"></div>' +
+      '<div class="actions"><button type="button" class="btn ghost" id="cancel">Batal</button>' +
+      '<button type="button" class="btn' + (saveLabel === 'Hapus' ? ' danger' : '') + '" id="save">' + esc(saveLabel || 'Simpan') + '</button></div>' +
+      '</form></div>';
+    var form = root.querySelector('form');
+    var err = $('err');
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
+    form.addEventListener('input', function () { err.textContent = ''; });
+    $('cancel').onclick = closeModal;
+    root.querySelector('.overlay').addEventListener('mousedown', function (e) {
+      if (e.target === e.currentTarget) closeModal();
+    });
+    $('save').onclick = function () {
+      var btn = $('save');
+      var r;
+      try { r = onSave(form); } catch (e) { err.textContent = e.message; return; }
+      if (typeof r === 'string') { err.textContent = r; return; }
+      btn.disabled = true;
+      Promise.resolve(r).then(function () {
+        state.pending = null;
+        closeModal();
+        toast('Tersimpan');
+        return reload();
+      }, function (e) {
+        btn.disabled = false;
+        err.textContent = e.message;
+      });
+    };
+    return form;
+  }
 
-  /**
-   * Dropdown yang bisa dicari. Terbuka saat kolom diketuk (menampilkan semua pilihan),
-   * menyaring saat mengetik, dan memilih lewat ketukan. Pengganti kolom pilihan bawaan browser
-   * yang di HP baru muncul setelah mengetik.
-   * getOptions() -> [{value, sub}] ; opts: {empty: teks bila kosong, next: fungsi setelah memilih}
-   */
+  function openInfo(title, body) {
+    var root = $('modal-root');
+    root.innerHTML = '<div class="overlay"><div class="sheet" role="dialog" aria-modal="true">' +
+      '<h2>' + esc(title) + '</h2>' + body +
+      '<div class="actions"><button type="button" class="btn" id="cancel">Tutup</button></div></div></div>';
+    $('cancel').onclick = closeModal;
+    root.querySelector('.overlay').addEventListener('mousedown', function (e) {
+      if (e.target === e.currentTarget) closeModal();
+    });
+    $('cancel').focus({ preventScroll: true }); // jangan menggulung ke tombol di dasar daftar panjang
+  }
+
+  function confirmDelete(title, message, fn) {
+    openModal(title, '<p>' + message + '</p>', function () { return fn(); }, 'Hapus');
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !e.defaultPrevented && modalOpen()) closeModal();
+  });
+
+  /* ------------------------------------------------------------ dropdown yang bisa dicari */
   function combo(input, getOptions, opts) {
     opts = opts || {};
     var dd = input.closest('.cbw').querySelector('.dd');
     var items = [];
-    var active = -1;
-    var picking = false;
+    var act = -1;
 
-    function close() { dd.hidden = true; active = -1; }
-
-    function reveal() {
-      [60, 320].forEach(function (ms) {
-        setTimeout(function () { if (!dd.hidden) dd.scrollIntoView({ block: 'nearest' }); }, ms);
-      });
+    function paint() {
+      if (!items.length) {
+        dd.innerHTML = '<div class="opt none">' + esc(opts.empty || 'Tidak ada pilihan.') + '</div>';
+        return;
+      }
+      dd.innerHTML = items.map(function (o, i) {
+        return '<div class="opt' + (o.value === input.value ? ' sel' : '') + (i === act ? ' act' : '') + '" data-i="' + i + '">' +
+          '<span>' + esc(o.value) + '</span>' + (o.sub ? '<small>' + esc(o.sub) + '</small>' : '') + '</div>';
+      }).join('');
     }
-
-    function render(showAll) {
-      var q = input.value.trim().toLowerCase();
+    function open(showAll) {
+      var q = showAll ? '' : input.value.trim().toLowerCase();
       var all = getOptions();
-      var exact = all.some(function (o) { return o.value.toLowerCase() === q; });
-      items = (showAll || !q || exact) ? all : all.filter(function (o) { return o.value.toLowerCase().indexOf(q) >= 0; });
-      active = -1;
-      dd.innerHTML = items.length ? items.map(function (o, i) {
-        return '<div class="opt' + (o.value.toLowerCase() === q ? ' sel' : '') + '" role="option" data-i="' + i + '"><span>' +
-          esc(o.value) + '</span>' + (o.sub ? '<small>' + esc(o.sub) + '</small>' : '') + '</div>';
-      }).join('') : '<div class="opt none">' + esc(opts.empty || 'Tidak ditemukan.') + '</div>';
+      items = q ? all.filter(function (o) { return o.value.toLowerCase().indexOf(q) >= 0; }) : all;
+      act = showAll ? -1 : (items.length ? 0 : -1);
+      paint();
       dd.hidden = false;
+      var sel = dd.querySelector('.sel');
+      if (sel) dd.scrollTop = sel.offsetTop - 40;
     }
-
+    function close() { dd.hidden = true; act = -1; }
     function pick(o) {
-      picking = true;
       input.value = o.value;
-      input.dispatchEvent(new Event('input', { bubbles: true })); // agar harga terisi otomatis dan total dihitung
-      picking = false;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
       close();
-      if (opts.next) opts.next(); else input.blur();
+      if (opts.next) opts.next();
     }
-
     function move(delta) {
       if (!items.length) return;
-      active = (active + delta + items.length) % items.length;
-      Array.prototype.forEach.call(dd.children, function (el, i) { el.classList.toggle('act', i === active); });
-      dd.children[active].scrollIntoView({ block: 'nearest' });
+      act = (act + delta + items.length) % items.length;
+      paint();
+      var el = dd.querySelector('.act');
+      if (el) el.scrollIntoView({ block: 'nearest' });
     }
 
-    input.addEventListener('focus', function () { render(true); reveal(); });
-    input.addEventListener('click', function () { if (dd.hidden) { render(true); reveal(); } });
-    input.addEventListener('input', function () { if (!picking) { render(false); reveal(); } });
+    input.addEventListener('focus', function () { open(true); });
+    input.addEventListener('click', function () { if (dd.hidden) open(true); });
+    input.addEventListener('input', function () { open(false); });
     input.addEventListener('blur', function () {
-      // tutup hanya jika kolom memang tidak difokuskan lagi (blur lalu fokus cepat tidak boleh menutup daftar)
       setTimeout(function () { if (document.activeElement !== input) close(); }, 150);
     });
     input.addEventListener('keydown', function (e) {
-      if (dd.hidden) {
-        if (e.key === 'ArrowDown') { e.preventDefault(); render(true); }
-        return;
-      }
-      if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
-      else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (active >= 0) pick(items[active]); else if (items.length === 1) pick(items[0]);
-      } else if (e.key === 'Escape') { e.stopPropagation(); close(); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (dd.hidden) open(false); else move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); if (!dd.hidden) move(-1); }
+      else if (e.key === 'Enter') { if (!dd.hidden && act >= 0) { e.preventDefault(); pick(items[act]); } }
+      else if (e.key === 'Escape') { if (!dd.hidden) { e.preventDefault(); close(); } }
       else if (e.key === 'Tab') close();
     });
-    dd.addEventListener('mousedown', function (e) { e.preventDefault(); }); // fokus tetap di kolom isian
+    dd.addEventListener('mousedown', function (e) { e.preventDefault(); }); // jaga fokus di kolom isian
     dd.addEventListener('click', function (e) {
       var el = e.target.closest('.opt');
       if (el && el.getAttribute('data-i') !== null) pick(items[Number(el.getAttribute('data-i'))]);
     });
+  }
+
+  /* ------------------------------------------------------------ form */
+  function byNota(list, nota) {
+    for (var i = 0; i < list.length; i++) if (list[i].nota === nota) return list[i];
+    return null;
+  }
+  function byName(list, name) {
+    for (var i = 0; i < list.length; i++) if (list[i].name === name) return list[i];
+    return null;
   }
 
   function saleForm(editing) {
@@ -614,6 +674,7 @@
     var s = editing || { nota: '', date: today(), outlet: '', note: '', items: [{ product: '', qty: '', price: '' }] };
     var known = {}; // produk di transaksi lama tetap boleh dipertahankan walau sudah dihapus dari master
     if (editing) editing.items.forEach(function (l) { known[l.product] = true; });
+    var baseline = editing ? JSON.stringify(editing) : '';
 
     function lineHtml(l) {
       return '<div class="line">' +
@@ -628,6 +689,7 @@
     }
 
     var body =
+      (editing ? '<div class="banner" id="syncnote" hidden></div>' : '') +
       '<label>Tanggal<input type="date" name="date" value="' + esc(s.date) + '"></label>' +
       '<div class="cbw"><label>Outlet<input name="outlet" class="cbin" autocomplete="off" placeholder="Ketuk untuk memilih outlet" value="' + esc(s.outlet) + '"></label><div class="dd" hidden></div></div>' +
       '<div class="sec">Produk</div><div id="lines">' + s.items.map(lineHtml).join('') + '</div>' +
@@ -642,9 +704,22 @@
       '<div class="trow" id="ttr" hidden><span>Pajak</span><b id="ttax"></b></div>' +
       '<div class="trow grand"><span>Total</span><b id="tot">Rp 0</b></div></div>';
 
+    // Mengubah penjualan yang sudah diubah/dihapus di perangkat lain tidak boleh menimpa diam-diam.
+    function staleMessage(data) {
+      if (!editing || !data) return '';
+      var latest = byNota(data.notas, editing.nota);
+      if (!latest) return 'Penjualan ini sudah dihapus di perangkat lain. Tutup form ini lalu muat ulang.';
+      if (JSON.stringify(latest) !== baseline) {
+        return 'Penjualan ini baru diubah di perangkat lain. Tutup form ini lalu buka lagi supaya perubahan itu tidak tertimpa.';
+      }
+      return '';
+    }
+
     var form = openModal(editing ? 'Ubah Penjualan' : 'Tambah Penjualan', body, function (f) {
       var v = fv(f);
       var outlet = v.outlet.trim();
+      var stale = staleMessage(state.pending);
+      if (stale) return stale;
       if (!v.date) return 'Pilih tanggal.';
       if (!byName(d.outlets, outlet) && !(editing && outlet === editing.outlet)) return 'Pilih outlet dari daftar.';
       var items = [];
@@ -673,7 +748,19 @@
       }).then(function () { state.month = v.date.slice(0, 7); });
     });
 
+    if (editing) {
+      state.onPending = function (data) {
+        var note = $('syncnote');
+        var msg = staleMessage(data);
+        if (!note) return;
+        note.textContent = msg;
+        note.hidden = !msg;
+      };
+    }
+
     var box = form.querySelector('#lines');
+    var alld = form.querySelector('#alld');
+    var allt = form.querySelector('#allt');
 
     function attachLine(el) {
       combo(el.querySelector('.lp'), function () {
@@ -693,8 +780,7 @@
         if (first && !first.value) first.focus(); else form.elements.outlet.blur();
       }
     });
-    var alld = form.querySelector('#alld');
-    var allt = form.querySelector('#allt');
+
     // Isian "semua": tampilkan nilai bila semua baris sama, kosong + "Beda" bila berbeda.
     function uniform(sel) {
       var first = null;
@@ -782,16 +868,6 @@
     refresh();
   }
 
-  function byNota(list, nota) {
-    for (var i = 0; i < list.length; i++) if (list[i].nota === nota) return list[i];
-    return null;
-  }
-
-  function byName(list, name) {
-    for (var i = 0; i < list.length; i++) if (list[i].name === name) return list[i];
-    return null;
-  }
-
   function productForm(editing) {
     var p = editing || { name: '', price: '', unit: 'pcs' };
     var form = openModal(editing ? 'Ubah Produk' : 'Tambah Produk',
@@ -818,18 +894,6 @@
         if (!v.name.trim()) return 'Nama outlet wajib diisi.';
         return call('saveOutlet', { id: editing ? editing.id : '', name: v.name, address: v.address });
       });
-  }
-
-  function openInfo(title, body) {
-    var root = $('modal-root');
-    root.innerHTML = '<div class="overlay"><div class="sheet" role="dialog" aria-modal="true">' +
-      '<h2>' + esc(title) + '</h2>' + body +
-      '<div class="actions"><button type="button" class="btn" id="cancel">Tutup</button></div></div></div>';
-    $('cancel').onclick = closeModal;
-    root.querySelector('.overlay').addEventListener('mousedown', function (e) {
-      if (e.target === e.currentTarget) closeModal();
-    });
-    $('cancel').focus({ preventScroll: true }); // jangan menggulung ke tombol di dasar daftar panjang
   }
 
   // Produk yang diorder satu outlet pada bulan yang sedang dilihat, dihitung dari data nota yang sudah dimuat.
@@ -893,102 +957,101 @@
           if (!getCfg() || getCfg().url !== url) clearCache();
           setCfg(c);
           state.data = null;
+          state.sig = '';
+          state.shown = false;
         });
       }, 'Simpan');
     var out = form.querySelector('#logout');
     if (out) out.onclick = function () {
-      setCfg(null);
+      if (!window.confirm('Putuskan sambungan? Data di Google Sheet tidak dihapus.')) return;
+      clearCfg();
       clearCache();
-      state.data = null;
-      state.offlineAt = 0;
+      state.data = null; state.sig = ''; state.shown = false;
       closeModal();
       render();
     };
   }
 
-  /* ------------------------------------------------------ events */
+  /* ------------------------------------------------------------ aksi */
+  function runShortcut() {
+    if (addShortcutDone) return;
+    addShortcutDone = true;
+    try {
+      if (/(^|[?&])add=sale(&|$)/.test(location.search) && state.data && !modalOpen()) {
+        state.tab = 'sales';
+        render();
+        saleForm();
+        history.replaceState(null, '', location.pathname);
+      }
+    } catch (e) { /* abaikan */ }
+  }
 
   document.addEventListener('click', function (e) {
     var tab = e.target.closest('[data-tab]');
     if (tab) { state.tab = tab.getAttribute('data-tab'); render(); window.scrollTo(0, 0); return; }
-
+    if (e.target.closest('#fab')) {
+      if (!state.data) return;
+      ({ sales: saleForm, products: productForm, outlets: outletForm }[state.tab] || function () {})();
+      return;
+    }
     var el = e.target.closest('[data-act]');
-    var act = el && el.getAttribute('data-act');
-    if (!el || (!state.data && act !== 'retry' && act !== 'settings' && act !== 'install')) return;
+    if (!el || el.closest('#modal-root')) return;
+    var act = el.getAttribute('data-act');
     var id = el.getAttribute('data-id');
     var d = state.data;
-
-    if (act === 'prev') { state.month = shiftMonth(state.month, -1); reload(); }
-    else if (act === 'next') { state.month = shiftMonth(state.month, 1); reload(); }
-    else if (act === 'retry') reload();
-    else if (act === 'settings') openSetup(false);
-    else if (act === 'outlet-detail') outletDetail(id);
-    else if (act === 'install') {
-      if (installEvt) {
-        var ev = installEvt;
-        ev.prompt();
-        ev.userChoice.then(function () { installEvt = null; render(); }, function () {});
-      }
-    }
-    else if (act === 'edit-nota') saleForm(byNota(d.notas, id));
-    else if (act === 'edit-product') productForm(byId(d.products, id));
-    else if (act === 'edit-outlet') outletForm(byId(d.outlets, id));
-    else if (act === 'del-nota') {
-      var n = byNota(d.notas, id);
-      if (n) confirmDelete('Penjualan ' + n.outlet + ' (' + n.items.length + ' produk, ' + rp(n.total) + ') akan dihapus.', 'deleteNota', id);
-    } else if (act === 'del-product') {
-      var p = byId(d.products, id);
-      if (p) confirmDelete('Produk "' + p.name + '" akan dihapus. Riwayat penjualan tidak ikut terhapus.', 'deleteProduct', id);
-    } else if (act === 'del-outlet') {
-      var o = byId(d.outlets, id);
-      if (o) confirmDelete('Outlet "' + o.name + '" akan dihapus. Riwayat penjualan tidak ikut terhapus.', 'deleteOutlet', id);
-    }
-  });
-
-  $('fab').addEventListener('click', function () {
-    if (!state.data) return;
-    if (state.tab === 'sales') saleForm(null);
-    else if (state.tab === 'products') productForm(null);
-    else if (state.tab === 'outlets') outletForm(null);
-  });
-
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') closeModal();
-    var t = e.target;
-    if ((e.key === 'Enter' || e.key === ' ') && t && t.classList && t.classList.contains('tap')) {
-      e.preventDefault();
-      t.click();
-    }
-  });
-
-  window.addEventListener('beforeinstallprompt', function (e) {
-    e.preventDefault();
-    installEvt = e;
-    render();
-  });
-  window.addEventListener('appinstalled', function () {
-    installEvt = null;
-    render();
-    toast('Aplikasi terpasang');
-  });
-  window.addEventListener('online', function () { if (getCfg()) reload(); });
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && getCfg() && !state.busy &&
-        Date.now() - state.loadedAt > 60000 && !document.querySelector('.overlay')) {
+    if (act === 'prev' || act === 'next') {
+      state.month = shiftMonth(state.month, act === 'next' ? 1 : -1);
+      state.sig = '';
       reload();
+    } else if (act === 'retry') { reload(); }
+    else if (act === 'refresh') { reload({ silent: !!d, manual: true }); }
+    else if (act === 'settings') { openSetup(!getCfg()); }
+    else if (act === 'install') {
+      if (installEvt) { installEvt.prompt(); installEvt = null; renderTop(); }
+    } else if (act === 'outlet-detail') { if (d) outletDetail(el.getAttribute('data-name')); }
+    else if (!d) { return; }
+    else if (act === 'edit-nota') { var n = byNota(d.notas, id); if (n) saleForm(n); }
+    else if (act === 'edit-product') {
+      var p = d.products.filter(function (x) { return x.id === id; })[0]; if (p) productForm(p);
+    } else if (act === 'edit-outlet') {
+      var o = d.outlets.filter(function (x) { return x.id === id; })[0]; if (o) outletForm(o);
+    } else if (act === 'del-nota') {
+      e.stopPropagation();
+      var nn = byNota(d.notas, id);
+      if (nn) confirmDelete('Hapus Penjualan',
+        'Hapus penjualan <b>' + esc(nn.outlet) + '</b> tanggal ' + esc(fmtDate(nn.date)) + ' (' + nn.items.length +
+        ' produk, ' + rp(nn.total) + ')? Tindakan ini tidak bisa dibatalkan.', function () { return call('deleteNota', id); });
+    } else if (act === 'del-product') {
+      e.stopPropagation();
+      var pp = d.products.filter(function (x) { return x.id === id; })[0];
+      if (pp) confirmDelete('Hapus Produk', 'Hapus produk <b>' + esc(pp.name) + '</b>? Penjualan lama tidak ikut terhapus.',
+        function () { return call('deleteProduct', id); });
+    } else if (act === 'del-outlet') {
+      e.stopPropagation();
+      var oo = d.outlets.filter(function (x) { return x.id === id; })[0];
+      if (oo) confirmDelete('Hapus Outlet', 'Hapus outlet <b>' + esc(oo.name) + '</b>? Penjualan lama tidak ikut terhapus.',
+        function () { return call('deleteOutlet', id); });
     }
   });
+  document.addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.bar-row.tap')) {
+      e.preventDefault();
+      if (state.data) outletDetail(e.target.getAttribute('data-name'));
+    }
+  });
+
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installEvt = e; renderTop(); });
+  window.addEventListener('appinstalled', function () { installEvt = null; renderTop(); });
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js').catch(function () {});
+      navigator.serviceWorker.register('sw.js').catch(function () { /* mis. file:// — abaikan */ });
     });
   }
 
-  var openAdd = /[?&]add=sale/.test(location.search);
   render();
-  reload().then(function () {
-    if (openAdd && state.data && !document.querySelector('.overlay')) saleForm(null);
-  });
+  if (getCfg()) reload(); else openSetup(true);
+  startSync();
 })();
 </script>
 </body>
