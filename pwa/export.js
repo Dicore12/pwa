@@ -272,6 +272,7 @@
     return sheetXml(rows, [14, 34, 8, 14, 16, 14, 30], 5);
   }
   function xlsxEst(m) {
+    if (!m || m.v !== 2) throw new Error('Berkas aplikasi belum diperbarui. Tutup aplikasi lalu buka lagi, kemudian coba unduh.');
     var used = {};
     var sheets = [{ name: sheetName('Ringkasan', used), xml: estSummarySheet(m) }];
     m.outlets.forEach(function (o) { sheets.push({ name: sheetName(o.name, used), xml: estOutletSheet(m, o) }); });
@@ -355,6 +356,7 @@
   }
 
   function pdfEst(m) {
+    if (!m || m.v !== 2) throw new Error('Berkas aplikasi belum diperbarui. Tutup aplikasi lalu buka lagi, kemudian coba unduh.');
     var jsPDF = global.jspdf && global.jspdf.jsPDF;
     if (!jsPDF) throw new Error('Pustaka PDF belum termuat.');
     var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });

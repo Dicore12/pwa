@@ -1275,7 +1275,7 @@
     var g = { count: 0, qty: 0, total: 0 };
     order.forEach(function (o) { g.count += o.count; g.qty += o.qty; g.total += o.total; });
     return {
-      filterLabel: e.filter === 'open' ? 'Menunggu' : 'Selesai / Batal', owner: owner(), outlets: order, grand: g,
+      v: 2, filterLabel: e.filter === 'open' ? 'Menunggu' : 'Selesai / Batal', owner: owner(), outlets: order, grand: g,
       printedAt: new Date().toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     };
   }
