@@ -1,11 +1,14 @@
 // Service worker Rekap Sales.
 // Naikkan CACHE_VERSION setiap kali file aplikasi diubah supaya HP mengambil versi baru.
-var CACHE_VERSION = 'v8';
+var CACHE_VERSION = 'v10';
 var CACHE = 'rekap-sales-' + CACHE_VERSION;
 var SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
+  './export.js',
+  './vendor/jspdf.umd.min.js',
+  './vendor/jspdf.plugin.autotable.min.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/maskable-512.png',

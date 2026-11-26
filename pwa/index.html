@@ -61,6 +61,9 @@
     font-size: 16px; font-weight: 700; text-align: left; }
   .sechead small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
   .sechead:active { background: var(--soft); }
+  .dl .row { margin: 10px 0 0; }
+  .dl .btn { flex: 1; }
+  .dl-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-right: auto; }
   .bar-row { margin-bottom: 12px; }
   .bar-row .top { display: flex; justify-content: space-between; gap: 8px; }
   .bar { height: 8px; border-radius: 4px; background: var(--soft); overflow: hidden; margin: 4px 0; }
@@ -102,7 +105,8 @@
   .banner { background: #fff4e5; color: #7a4b00; border-radius: 10px; padding: 8px 12px;
     margin-bottom: 12px; font-size: 13px; }
   .banner[hidden] { display: none; }
-  @media (prefers-color-scheme: dark) { .banner { background: #3a2c10; color: #ffd591; } }
+  .banner.bad { background: #fdecea; color: #8a1c14; }
+  @media (prefers-color-scheme: dark) { .banner { background: #3a2c10; color: #ffd591; } .banner.bad { background: #3d1a17; color: #ffb4ab; } }
   .help { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
 
   .item.top { align-items: flex-start; }
@@ -175,6 +179,8 @@
     { id: 'recap', label: 'Rekap', icon: '📊' }
   ];
   // Sinkronisasi otomatis: cek perubahan dari perangkat lain tiap beberapa detik selama aplikasi terlihat.
+  // Versi API Code.gs yang dibutuhkan aplikasi ini (lihat API_VERSION di Code.gs).
+  var API_NEED = 3;
   var SYNC_MS = Number(window.RS_SYNC_MS) || 20000;
 
   var state = { tab: 'sales', month: ym(new Date()), data: null, sig: '', error: null, busy: false,
@@ -318,9 +324,12 @@
       return j.data;
     });
   }
+  var OUTDATED_MSG = 'Code.gs di Google Sheet masih versi lama, jadi data bisa tercampur antar-HP. Perbarui dulu: tempel Code.gs terbaru lalu Deploy > Manage deployments > pensil > New version.';
+  function outdated() { return !!state.data && state.data.api !== API_NEED; }
   function call(action) {
     var cfg = getCfg();
     if (!cfg) return Promise.reject(new Error('Belum terhubung ke Google Sheets.'));
+    if (outdated()) return Promise.reject(new Error(OUTDATED_MSG));
     return rawCall(cfg, action, Array.prototype.slice.call(arguments, 1));
   }
 
@@ -447,11 +456,13 @@
         : '<div class="empty">Memuat data…</div>';
       return;
     }
-    var banner = state.offlineAt
+    var warn = outdated() ? '<div class="banner bad"><b>Code.gs belum diperbarui.</b> Server masih versi lama, sehingga Nama sales belum memisahkan data dan penyimpanan dinonaktifkan. ' +
+      'Tempel <b>Code.gs</b> terbaru di Apps Script, lalu <b>Deploy &gt; Manage deployments &gt; pensil &gt; Version: New version</b>.</div>' : '';
+    var banner = warn + (state.offlineAt ? '' : '') + (state.offlineAt
       ? '<div class="banner">Tidak terhubung. Menampilkan data terakhir (' +
         esc(new Date(state.offlineAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) +
         '). Perubahan butuh koneksi internet.</div>'
-      : '';
+      : '');
     v.innerHTML = banner + { sales: viewSales, products: viewProducts, outlets: viewOutlets, recap: viewRecap }[state.tab]();
   }
 
@@ -523,7 +534,13 @@
 
   function viewRecap() {
     var d = state.data;
-    return summaryCard(d.summary) +
+    var dl = d.notas.length
+      ? '<div class="card dl"><div class="t">Unduh rekap per outlet</div>' +
+        '<div class="s">' + esc(monthLabel(state.month)) + ' · tiap outlet satu tabel (satu sheet di Excel, satu halaman di PDF)</div>' +
+        '<div class="row"><button type="button" class="btn" data-act="dl-xlsx">Excel (.xlsx)</button>' +
+        '<button type="button" class="btn" data-act="dl-pdf">PDF</button></div></div>'
+      : '';
+    return summaryCard(d.summary) + dl +
       '<button type="button" class="sechead" data-act="toggle-products" aria-expanded="' + state.openProducts + '">' +
       '<span>Per Produk<small>' + (state.openProducts ? 'Ketuk untuk menutup' : d.byProduct.length + ' produk · ketuk untuk melihat') + '</small></span>' +
       '<span class="chev">' + (state.openProducts ? '▾' : '▸') + '</span></button>' +
@@ -588,11 +605,11 @@
     return form;
   }
 
-  function openInfo(title, body) {
+  function openInfo(title, body, extra) {
     var root = $('modal-root');
     root.innerHTML = '<div class="overlay"><div class="sheet" role="dialog" aria-modal="true">' +
       '<h2>' + esc(title) + '</h2>' + body +
-      '<div class="actions"><button type="button" class="btn" id="cancel">Tutup</button></div></div></div>';
+      '<div class="actions">' + (extra || '') + '<button type="button" class="btn" id="cancel">Tutup</button></div></div></div>';
     $('cancel').onclick = closeModal;
     root.querySelector('.overlay').addEventListener('mousedown', function (e) {
       if (e.target === e.currentTarget) closeModal();
@@ -943,7 +960,91 @@
       '<p class="help" style="margin-bottom:10px">' + esc(monthLabel(state.month)) + '</p>' +
       summaryCard({ total: total, transactions: orders.length, qty: qty, subtotal: sum.sub, discount: sum.disc, tax: sum.tax }) +
       '<h3>Produk yang diorder</h3>' + bars(prods) +
-      '<h3>Riwayat order</h3>' + history);
+      '<h3>Riwayat order</h3>' + history,
+      '<span class="dl-btns"><button type="button" class="btn ghost small" id="dlx">Excel</button>' +
+      '<button type="button" class="btn ghost small" id="dlp">PDF</button></span>');
+    $('dlx').onclick = function () { exportRecap('xlsx', name); };
+    $('dlp').onclick = function () { exportRecap('pdf', name); };
+  }
+
+  /* ------------------------------------------------------------ unduh Excel / PDF */
+  var scriptLoads = {};
+  function loadScript(src) {
+    if (!scriptLoads[src]) {
+      scriptLoads[src] = new Promise(function (resolve, reject) {
+        var el = document.createElement('script');
+        el.src = src;
+        el.onload = resolve;
+        el.onerror = function () { delete scriptLoads[src]; reject(new Error('Tidak bisa memuat ' + src + '. Periksa koneksi lalu coba lagi.')); };
+        document.head.appendChild(el);
+      });
+    }
+    return scriptLoads[src];
+  }
+  function loadExport(kind) {
+    var chain = loadScript('export.js');
+    if (kind === 'pdf') {
+      chain = chain.then(function () { return loadScript('vendor/jspdf.umd.min.js'); })
+        .then(function () { return loadScript('vendor/jspdf.plugin.autotable.min.js'); });
+    }
+    return chain;
+  }
+
+  /** Data tabel untuk file: satu entri per outlet (atau hanya satu outlet), baris produk urut tanggal. */
+  function buildExportModel(only) {
+    var d = state.data;
+    var byOutlet = Object.create(null);
+    var order = [];
+    d.notas.slice().reverse().forEach(function (n) {       // lama -> baru
+      if (only && n.outlet !== only) return;
+      var o = byOutlet[n.outlet];
+      if (!o) { o = byOutlet[n.outlet] = { name: n.outlet, transactions: 0, qty: 0, sub: 0, disc: 0, tax: 0, total: 0, rows: [] }; order.push(o); }
+      o.transactions++;
+      n.items.forEach(function (l) {
+        var c = calc(l.qty, l.price, l.disc || 0, l.tax || 0);
+        o.rows.push({ date: n.date, dateLabel: fmtDate(n.date), product: l.product, qty: l.qty, price: l.price,
+          disc: l.disc || 0, tax: l.tax || 0, sub: c.sub, discAmt: c.discAmt, taxAmt: c.taxAmt, total: c.total, note: n.note || '' });
+        o.qty += l.qty; o.sub += c.sub; o.disc += c.discAmt; o.tax += c.taxAmt; o.total += c.total;
+      });
+    });
+    order.sort(function (a, b) { return b.total - a.total || (a.name < b.name ? -1 : 1); });
+    var g = { transactions: 0, qty: 0, sub: 0, disc: 0, tax: 0, total: 0 };
+    order.forEach(function (o) { Object.keys(g).forEach(function (k) { g[k] += o[k]; }); });
+    return {
+      monthLabel: monthLabel(state.month), owner: owner(),
+      printedAt: new Date().toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      outlets: order, grand: g
+    };
+  }
+
+  function safeName(s) { return String(s).replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'outlet'; }
+  function saveBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 15000);
+  }
+
+  var exporting = false;
+  /** kind: 'xlsx' | 'pdf'; only: nama satu outlet, atau null untuk semua outlet bulan yang sedang dilihat. */
+  function exportRecap(kind, only) {
+    if (!state.data || exporting) return Promise.resolve();
+    var model = buildExportModel(only);
+    if (!model.outlets.length) { toast('Belum ada penjualan di bulan ini.'); return Promise.resolve(); }
+    exporting = true;
+    toast(kind === 'pdf' ? 'Menyiapkan PDF…' : 'Menyiapkan Excel…');
+    var name = 'Rekap-' + (only ? safeName(only) : 'Outlet') + '-' + state.month + (kind === 'pdf' ? '.pdf' : '.xlsx');
+    return loadExport(kind).then(function () {
+      return kind === 'pdf' ? window.RSExport.pdf(model) : window.RSExport.xlsx(model);
+    }).then(function (blob) {
+      saveBlob(blob, name);
+      toast('File diunduh: ' + name);
+    }).catch(function (e) {
+      toast('Gagal membuat file: ' + e.message);
+    }).then(function () { exporting = false; });
   }
 
   function openSetup(first) {
@@ -1020,6 +1121,7 @@
       state.sig = '';
       reload();
     } else if (act === 'retry') { reload(); }
+    else if (act === 'dl-xlsx' || act === 'dl-pdf') { exportRecap(act === 'dl-pdf' ? 'pdf' : 'xlsx', null); }
     else if (act === 'toggle-products') { state.openProducts = !state.openProducts; render(); }
     else if (act === 'refresh') { reload({ silent: !!d, manual: true }); }
     else if (act === 'settings') { openSetup(!getCfg()); }
