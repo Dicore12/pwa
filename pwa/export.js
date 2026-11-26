@@ -237,7 +237,7 @@
   var EST_NOTE = 'Estimasi order yang diinput sendiri dan dikejar ke outlet. Total = Qty x Harga.';
   function estSummarySheet(m) {
     var rows = [];
-    rows[0] = [cs('A1', 'Rekap Estimasi per Outlet', S.title)];
+    rows[0] = [cs('A1', 'Rekap Estimasi Produk Baru per Outlet', S.title)];
     rows[1] = [cs('A2', estMeta(m), S.muted)];
     rows[2] = [cs('A3', EST_NOTE + ' Tiap outlet punya sheet sendiri.', S.muted)];
     rows[4] = ['No', 'Outlet', 'Estimasi', 'Qty', 'Total (Rp)'].map(function (h, i) { return cs(colName(i) + '5', h, S.head); });
@@ -276,6 +276,52 @@
     var used = {};
     var sheets = [{ name: sheetName('Ringkasan', used), xml: estSummarySheet(m) }];
     m.outlets.forEach(function (o) { sheets.push({ name: sheetName(o.name, used), xml: estOutletSheet(m, o) }); });
+    return book(sheets);
+  }
+
+  /* ------------------------------------------------------------------ ESTIMASI SALES (nilai saja) */
+  function sMeta(m) {
+    return 'Tampilan: ' + m.filterLabel + (m.owner ? '   |   Sales: ' + m.owner : '') + '   |   Dibuat: ' + m.printedAt;
+  }
+  var SEST_NOTE = 'Estimasi nilai sales (Rp) per outlet yang diinput sendiri dan dikejar.';
+  function sSummarySheet(m) {
+    var rows = [];
+    rows[0] = [cs('A1', 'Rekap Estimasi Sales per Outlet', S.title)];
+    rows[1] = [cs('A2', sMeta(m), S.muted)];
+    rows[2] = [cs('A3', SEST_NOTE + ' Tiap outlet punya sheet sendiri.', S.muted)];
+    rows[4] = ['No', 'Outlet', 'Estimasi', 'Nilai (Rp)'].map(function (h, i) { return cs(colName(i) + '5', h, S.head); });
+    var r = 6;
+    m.outlets.forEach(function (o, i) {
+      var n = String(r);
+      rows[r - 1] = [cn('A' + n, i + 1, S.int), cs('B' + n, o.name, S.text), cn('C' + n, o.count, S.int), cn('D' + n, o.total, S.int)];
+      r++;
+    });
+    var t = String(r), g = m.grand;
+    function sum(col, v) { return cf(col + t, 'SUM(' + col + '6:' + col + (r - 1) + ')', v, S.totInt); }
+    rows[r - 1] = [cs('A' + t, 'Total', S.totLabel), cb('B' + t, S.totBlank), sum('C', g.count), sum('D', g.total)];
+    return sheetXml(rows, [6, 38, 11, 20], 5);
+  }
+  function sOutletSheet(m, o) {
+    var rows = [];
+    rows[0] = [cs('A1', 'Estimasi Sales - ' + o.name, S.title)];
+    rows[1] = [cs('A2', sMeta(m), S.muted)];
+    rows[2] = [cs('A3', SEST_NOTE, S.muted)];
+    rows[4] = ['Target', 'Nilai (Rp)', 'Status', 'Catatan'].map(function (h, i) { return cs(colName(i) + '5', h, S.head); });
+    var r = 6;
+    o.rows.forEach(function (x) {
+      var n = String(r);
+      rows[r - 1] = [cn('A' + n, serial(x.date), S.date), cn('B' + n, x.value, S.int), cs('C' + n, x.status, S.text), cs('D' + n, x.note || '', S.text)];
+      r++;
+    });
+    var t = String(r);
+    rows[r - 1] = [cs('A' + t, 'Total', S.totLabel), cf('B' + t, 'SUM(B6:B' + (r - 1) + ')', o.total, S.totInt), cb('C' + t, S.totBlank), cb('D' + t, S.totBlank)];
+    return sheetXml(rows, [14, 20, 14, 36], 5);
+  }
+  function xlsxSEst(m) {
+    if (!m || m.v !== 2) throw new Error('Berkas aplikasi belum diperbarui. Tutup aplikasi lalu buka lagi, kemudian coba unduh.');
+    var used = {};
+    var sheets = [{ name: sheetName('Ringkasan', used), xml: sSummarySheet(m) }];
+    m.outlets.forEach(function (o) { sheets.push({ name: sheetName(o.name, used), xml: sOutletSheet(m, o) }); });
     return book(sheets);
   }
 
@@ -383,7 +429,7 @@
     function opts(extra) { var o = {}, k; for (k in common) o[k] = common[k]; for (k in extra) o[k] = extra[k]; return o; }
     var meta = 'Tampilan: ' + m.filterLabel + (m.owner ? '   |   Sales: ' + m.owner : '');
     var g = m.grand;
-    var y = heading('Rekap Estimasi per Outlet', meta, 'Dibuat: ' + m.printedAt + '   |   Nominal dalam Rupiah');
+    var y = heading('Rekap Estimasi Produk Baru per Outlet', meta, 'Dibuat: ' + m.printedAt + '   |   Nominal dalam Rupiah');
     doc.autoTable(opts({
       startY: y,
       head: [['No', 'Outlet', 'Estimasi', 'Qty', 'Total']],
@@ -412,5 +458,61 @@
     return doc.output('blob');
   }
 
-  global.RSExport = { xlsx: xlsx, pdf: pdf, xlsxEst: xlsxEst, pdfEst: pdfEst };
+  function pdfSEst(m) {
+    if (!m || m.v !== 2) throw new Error('Berkas aplikasi belum diperbarui. Tutup aplikasi lalu buka lagi, kemudian coba unduh.');
+    var jsPDF = global.jspdf && global.jspdf.jsPDF;
+    if (!jsPDF) throw new Error('Pustaka PDF belum termuat.');
+    var doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    if (typeof doc.autoTable !== 'function') throw new Error('Pustaka tabel PDF belum termuat.');
+    var W = doc.internal.pageSize.getWidth(), M = 14;
+    var BLUE = [26, 115, 232], LIGHT = [232, 240, 254];
+    function heading(title, sub1, sub2) {
+      doc.setTextColor(20); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
+      var lines = doc.splitTextToSize(title, W - 2 * M);
+      doc.text(lines, M, 16);
+      var y = 16 + (lines.length - 1) * 6.5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(100);
+      doc.text(sub1, M, y + 6); doc.text(sub2, M, y + 11);
+      doc.setTextColor(20);
+      return y + 16;
+    }
+    var common = {
+      theme: 'grid', margin: { left: M, right: M, bottom: 14 },
+      styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, lineColor: [191, 199, 213], lineWidth: 0.2, textColor: 20 },
+      headStyles: { fillColor: BLUE, textColor: 255, fontStyle: 'bold', halign: 'center', valign: 'middle' },
+      footStyles: { fillColor: LIGHT, textColor: 20, fontStyle: 'bold' }, showFoot: 'lastPage'
+    };
+    function R(t) { return { content: t, styles: { halign: 'right' } }; }
+    function opts(extra) { var o = {}, k; for (k in common) o[k] = common[k]; for (k in extra) o[k] = extra[k]; return o; }
+    var meta = 'Tampilan: ' + m.filterLabel + (m.owner ? '   |   Sales: ' + m.owner : '');
+    var g = m.grand;
+    var y = heading('Rekap Estimasi Sales per Outlet', meta, 'Dibuat: ' + m.printedAt + '   |   Nominal dalam Rupiah');
+    doc.autoTable(opts({
+      startY: y,
+      head: [['No', 'Outlet', 'Estimasi', 'Nilai']],
+      body: m.outlets.map(function (o, i) { return [String(i + 1), o.name, fmt(o.count), fmt(o.total)]; }),
+      foot: [['', 'Total semua outlet', R(fmt(g.count)), R(fmt(g.total))]],
+      columnStyles: { 0: { halign: 'center', cellWidth: 12 }, 2: { halign: 'right' }, 3: { halign: 'right', fontStyle: 'bold' } }
+    }));
+    m.outlets.forEach(function (o) {
+      doc.addPage();
+      var sy = heading(o.name, meta, o.count + ' estimasi   |   Total ' + fmt(o.total));
+      doc.autoTable(opts({
+        startY: sy,
+        head: [['Target', 'Nilai', 'Status', 'Catatan']],
+        body: o.rows.map(function (x) { return [x.dateLabel, fmt(x.value), x.status, x.note || '']; }),
+        foot: [['Total', R(fmt(o.total)), '', '']],
+        columnStyles: { 0: { cellWidth: 32 }, 1: { halign: 'right', cellWidth: 40, fontStyle: 'bold' }, 2: { cellWidth: 30 } }
+      }));
+    });
+    var pages = doc.getNumberOfPages(), H = doc.internal.pageSize.getHeight();
+    for (var i = 1; i <= pages; i++) {
+      doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(130);
+      doc.text('Rekap Sales - Estimasi Sales', M, H - 7);
+      doc.text('Halaman ' + i + ' dari ' + pages, W - M, H - 7, { align: 'right' });
+    }
+    return doc.output('blob');
+  }
+
+  global.RSExport = { xlsx: xlsx, pdf: pdf, xlsxEst: xlsxEst, pdfEst: pdfEst, xlsxSEst: xlsxSEst, pdfSEst: pdfSEst };
 })(window);

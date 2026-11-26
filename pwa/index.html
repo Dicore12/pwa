@@ -196,10 +196,12 @@
   // Sinkronisasi otomatis: cek perubahan dari perangkat lain tiap beberapa detik selama aplikasi terlihat.
   // Versi API Code.gs yang dibutuhkan aplikasi ini (lihat API_VERSION di Code.gs).
   var API_NEED = 3;           // minimal untuk fungsi dasar; fitur Estimasi butuh 4
-  var EST_KEY = 'rs-est';     // cadangan daftar estimasi untuk dilihat offline
+  var EST_KEY = 'rs-est';
+  var SEST_KEY = 'rs-sest';     // cadangan daftar estimasi untuk dilihat offline
   var SYNC_MS = Number(window.RS_SYNC_MS) || 20000;
 
-  function newEst() { return { data: null, at: 0, loading: false, error: '', offline: false, filter: 'open' }; }
+  function newSEst() { return { data: null, at: 0, loading: false, error: '', offline: false, filter: 'open' }; }
+  function newEst() { return { data: null, at: 0, loading: false, error: '', offline: false, filter: 'open', sub: 'prod', s: newSEst() }; }
   var state = { est: newEst(), tab: 'sales', month: ym(new Date()), data: null, sig: '', error: null, busy: false,
                 offlineAt: 0, loadedAt: 0, pending: null, onPending: null, openProducts: false };
   var installEvt = null;
@@ -318,6 +320,7 @@
         if (k.indexOf(CACHE_PREFIX) === 0) localStorage.removeItem(k);
       });
       localStorage.removeItem(EST_KEY);
+      localStorage.removeItem(SEST_KEY);
     } catch (e) { /* abaikan */ }
   }
 
@@ -563,7 +566,7 @@
   function saveEstCache(data) {
     try { localStorage.setItem(EST_KEY, JSON.stringify({ at: Date.now(), owner: owner(), data: data })); } catch (e) { /* abaikan */ }
   }
-  function ensureEstimates() {
+  function ensureProd() {
     var e = state.est;
     if (!e.data) {
       var c = readEst();                                     // tampilkan salinan terakhir dulu sambil memuat yang baru
@@ -626,7 +629,7 @@
     return e.data.estimates.filter(function (x) { return (x.status === 'Menunggu') === (e.filter === 'open'); });
   }
 
-  function viewEstimate() {
+  function viewProdEst() {
     var e = state.est;
     if (!e.data) {
       return e.error
@@ -640,10 +643,10 @@
       ? '<div class="banner">Tidak terhubung. Menampilkan salinan terakhir (' +
         esc(new Date(e.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ').</div>'
       : '';
-    h += '<div class="card summary"><div class="lbl">Estimasi yang dikejar</div><div class="big">' + rp(sm.total) + '</div>' +
+    h += '<div class="card summary"><div class="lbl">Estimasi produk baru yang dikejar</div><div class="big">' + rp(sm.total) + '</div>' +
       '<div class="lbl">' + sm.open + ' estimasi · ' + sm.qty + ' item menunggu order</div></div>';
     if (all.length) {
-      h += '<div class="card dl"><div class="lbl">Unduh rekap estimasi (' + (e.filter === 'open' ? 'Menunggu' : 'Selesai') + ')</div>' +
+      h += '<div class="card dl"><div class="lbl">Unduh rekap estimasi produk baru (' + (e.filter === 'open' ? 'Menunggu' : 'Selesai') + ')</div>' +
         '<div class="row"><button type="button" class="btn" data-act="est-xlsx">Excel (.xlsx)</button>' +
         '<button type="button" class="btn" data-act="est-pdf">PDF</button></div></div>';
     }
@@ -673,6 +676,184 @@
         '<button class="icon" data-act="est-del" data-id="' + esc(x.est) + '" aria-label="Hapus">🗑</button></div>' +
         '<div class="estacts">' + acts + '</div></div>';
     }).join('');
+  }
+
+  /* ------------------------------------------------------------ estimasi sales (nilai saja) */
+  function readSEst() {
+    try {
+      var c = JSON.parse(localStorage.getItem(SEST_KEY) || 'null');
+      return c && c.owner === owner() && c.data && Array.isArray(c.data.estimates) ? c : null;
+    } catch (e) { return null; }
+  }
+  function ensureSales() {
+    var s = state.est.s;
+    if (!s.data) {
+      var c = readSEst();
+      if (c) { s.data = c.data; s.at = c.at; render(); }
+    }
+    loadSEst(false);
+  }
+  function ensureEstimates() { if (state.est.sub === 'sales') ensureSales(); else ensureProd(); }
+  function refreshEst(manual) { if (state.est.sub === 'sales') loadSEst(manual); else loadEstimates(manual); }
+  function loadSEst(manual) {
+    var cfg = getCfg();
+    var s = state.est.s;
+    if (!cfg || s.loading) return Promise.resolve();
+    s.loading = true;
+    s.error = '';
+    if (!s.data) render();
+    return rawCall(cfg, 'loadSalesEstimates', [cfg.owner || '']).then(function (data) {
+      if (!data || !Array.isArray(data.estimates)) throw new Error('Respons estimasi tidak valid.');
+      s.data = data; s.at = Date.now(); s.offline = false;
+      try { localStorage.setItem(SEST_KEY, JSON.stringify({ at: s.at, owner: owner(), data: data })); } catch (e) { /* abaikan */ }
+      if (manual) toast('Estimasi diperbarui');
+    }).catch(function (err) {
+      if (err.network) {
+        if (!s.data) { var c = readSEst(); if (c) { s.data = c.data; s.at = c.at; } }
+        s.offline = !!s.data;
+        if (!s.data) s.error = err.message;
+      } else s.error = /tidak dikenal/i.test(err.message) ? EST_OLD_MSG : err.message;
+    }).then(function () {
+      s.loading = false;
+      if (state.tab === 'est') render();
+    });
+  }
+  function sestDo(action, args) {
+    var cfg = getCfg();
+    if (!cfg) return Promise.reject(new Error('Belum terhubung ke Google Sheets.'));
+    return rawCall(cfg, action, args).then(function (r) {
+      return loadSEst(false).then(function () { return r; });
+    }, function (err) {
+      throw /tidak dikenal/i.test(err.message) ? new Error(EST_OLD_MSG) : err;
+    });
+  }
+  function findSEst(id) {
+    var l = state.est.s.data ? state.est.s.data.estimates : [];
+    for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i];
+    return null;
+  }
+  function sestList() {
+    var s = state.est.s;
+    return s.data.estimates.filter(function (x) { return (x.status === 'Menunggu') === (s.filter === 'open'); });
+  }
+
+  function viewSalesEst() {
+    var s = state.est.s;
+    if (!s.data) {
+      return s.error
+        ? '<div class="empty">Gagal memuat estimasi.<br>' + esc(s.error) + '<br><br><button class="btn" data-act="est-retry">Coba lagi</button></div>'
+        : '<div class="empty">Memuat estimasi…</div>';
+    }
+    var all = s.data.estimates;
+    var nOpen = all.filter(function (x) { return x.status === 'Menunggu'; }).length;
+    var sm = s.data.summary || { open: 0, total: 0 };
+    var h = s.offline
+      ? '<div class="banner">Tidak terhubung. Menampilkan salinan terakhir (' +
+        esc(new Date(s.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ').</div>'
+      : '';
+    h += '<div class="card summary"><div class="lbl">Estimasi sales yang dikejar</div><div class="big">' + rp(sm.total) + '</div>' +
+      '<div class="lbl">' + sm.open + ' estimasi menunggu</div></div>';
+    if (all.length) {
+      h += '<div class="card dl"><div class="lbl">Unduh rekap estimasi sales (' + (s.filter === 'open' ? 'Menunggu' : 'Selesai') + ')</div>' +
+        '<div class="row"><button type="button" class="btn" data-act="sest-xlsx">Excel (.xlsx)</button>' +
+        '<button type="button" class="btn" data-act="sest-pdf">PDF</button></div></div>';
+    }
+    h += '<div class="chips" role="group" aria-label="Filter estimasi sales">' +
+      '<button type="button" class="chip" data-act="sest-filter" data-f="open" aria-pressed="' + (s.filter === 'open') + '">Menunggu (' + nOpen + ')</button>' +
+      '<button type="button" class="chip" data-act="sest-filter" data-f="done" aria-pressed="' + (s.filter === 'done') + '">Selesai (' + (all.length - nOpen) + ')</button></div>';
+    var list = sestList();
+    if (!list.length) {
+      return h + '<div class="empty">' + (all.length
+        ? (s.filter === 'open' ? 'Tidak ada estimasi yang menunggu.' : 'Belum ada estimasi yang selesai atau dibatalkan.')
+        : 'Belum ada estimasi sales.<br>Tekan + untuk menambah nilai estimasi per outlet.') + '</div>';
+    }
+    return h + list.map(function (x) {
+      var b = targetBadge(x);
+      var acts = x.status === 'Menunggu'
+        ? '<button type="button" class="btn sm" data-act="sest-done" data-id="' + esc(x.id) + '">✓ Tercapai</button>' +
+          '<button type="button" class="btn sm ghost" data-act="sest-cancel" data-id="' + esc(x.id) + '">Batal</button>'
+        : '<button type="button" class="btn sm ghost" data-act="sest-reopen" data-id="' + esc(x.id) + '">Buka lagi</button>';
+      return '<div class="card est" data-act="sest-edit" data-id="' + esc(x.id) + '" role="button" tabindex="0">' +
+        '<div class="top"><div><div class="t">' + esc(x.outlet) + '</div><div class="s">Target ' + esc(fmtDate(x.date)) + '</div></div>' +
+        '<span class="bd ' + b.cls + '">' + esc(b.text) + '</span></div>' +
+        (x.note ? '<div class="s" style="margin-top:4px">' + esc(x.note) + '</div>' : '') +
+        '<div class="top" style="margin-top:8px"><b>' + rp(x.value) + '</b>' +
+        '<button class="icon" data-act="sest-del" data-id="' + esc(x.id) + '" aria-label="Hapus">🗑</button></div>' +
+        '<div class="estacts">' + acts + '</div></div>';
+    }).join('');
+  }
+
+  function sestForm(editing) {
+    var d = state.data;
+    if (!d) { toast('Data outlet belum termuat.'); return; }
+    var s = editing || { id: '', date: today(), outlet: '', value: '', note: '' };
+    var body =
+      '<label>Target (kapan dikejar)<input type="date" name="date" value="' + esc(s.date) + '"></label>' +
+      '<div class="cbw"><label>Outlet<input name="outlet" class="cbin" autocomplete="off" placeholder="Ketuk untuk memilih outlet" value="' + esc(s.outlet) + '"></label><div class="dd" hidden></div></div>' +
+      '<label>Nilai estimasi sales (Rp)<input name="value" inputmode="numeric" autocomplete="off" value="' + esc(s.value) + '"></label>' +
+      '<div class="tbox"><div class="trow grand"><span>Nilai</span><b id="tot">Rp 0</b></div></div>' +
+      '<label>Catatan (opsional)<input name="note" value="' + esc(s.note) + '"></label>';
+    var form = openModal(editing ? 'Ubah Estimasi Sales' : 'Tambah Estimasi Sales', body, function (f) {
+      var v = fv(f);
+      var outlet = v.outlet.trim();
+      var value = parseInt(v.value, 10);
+      if (!v.date) return 'Pilih tanggal target.';
+      if (!byName(d.outlets, outlet) && !(editing && outlet === editing.outlet)) return 'Pilih outlet dari daftar.';
+      if (!(value > 0)) return 'Isi nilai estimasi sales (lebih dari 0).';
+      return sestDo('saveSalesEstimate', [{
+        id: editing ? editing.id : '', owner: owner(), date: v.date, outlet: outlet, value: value, note: v.note,
+        status: editing ? editing.status : 'Menunggu'
+      }]);
+    }, 'Simpan', function () { return Promise.resolve(); });
+    combo(form.elements.outlet, function () {
+      return d.outlets.map(function (o) { return { value: o.name, sub: o.address || '' }; });
+    }, { empty: 'Outlet tidak ditemukan. Tambahkan dulu di tab Outlet.', next: function () { form.elements.value.focus(); } });
+    function refresh() { $('tot').textContent = rp(parseInt(form.elements.value.value, 10) || 0); }
+    form.addEventListener('input', function (e) {
+      if (e.target.name === 'value') e.target.value = e.target.value.replace(/\D/g, '');
+      refresh();
+    });
+    form.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault(); });
+    refresh();
+  }
+
+  function buildSEstModel() {
+    var s = state.est.s;
+    var by = Object.create(null), order = [];
+    sestList().slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }).forEach(function (x) {
+      var o = by[x.outlet];
+      if (!o) { o = by[x.outlet] = { name: x.outlet, count: 0, total: 0, rows: [] }; order.push(o); }
+      o.count++; o.total += x.value;
+      o.rows.push({ date: x.date, dateLabel: fmtDate(x.date), value: x.value, status: x.status, note: x.note || '' });
+    });
+    order.sort(function (a, b) { return b.total - a.total || (a.name < b.name ? -1 : 1); });
+    var g = { count: 0, total: 0 };
+    order.forEach(function (o) { g.count += o.count; g.total += o.total; });
+    return {
+      v: 2, filterLabel: s.filter === 'open' ? 'Menunggu' : 'Selesai / Batal', owner: owner(), outlets: order, grand: g,
+      printedAt: new Date().toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    };
+  }
+  function exportSEst(kind) {
+    if (!state.est.s.data || exporting) return Promise.resolve();
+    var model = buildSEstModel();
+    if (!model.outlets.length) { toast('Tidak ada estimasi untuk diunduh.'); return Promise.resolve(); }
+    exporting = true;
+    toast(kind === 'pdf' ? 'Menyiapkan PDF…' : 'Menyiapkan Excel…');
+    var name = 'Estimasi-Sales-' + (state.est.s.filter === 'open' ? 'Menunggu' : 'Selesai') + '-' + today() + (kind === 'pdf' ? '.pdf' : '.xlsx');
+    return loadExport(kind).then(function () {
+      return kind === 'pdf' ? window.RSExport.pdfSEst(model) : window.RSExport.xlsxSEst(model);
+    }).then(function (blob) { saveBlob(blob, name); toast('File diunduh: ' + name); })
+      .catch(function (err) { toast('Gagal membuat file: ' + err.message); })
+      .then(function () { exporting = false; });
+  }
+
+  function viewEstimate() {
+    var sub = state.est.sub;
+    return '<div class="chips" role="group" aria-label="Jenis estimasi">' +
+      '<button type="button" class="chip" data-act="est-sub" data-s="prod" aria-pressed="' + (sub === 'prod') + '">Produk Baru</button>' +
+      '<button type="button" class="chip" data-act="est-sub" data-s="sales" aria-pressed="' + (sub === 'sales') + '">Sales</button></div>' +
+      (sub === 'sales' ? viewSalesEst() : viewProdEst());
   }
 
   function estForm(editing) {
@@ -1285,7 +1466,7 @@
     if (!model.outlets.length) { toast('Tidak ada estimasi untuk diunduh.'); return Promise.resolve(); }
     exporting = true;
     toast(kind === 'pdf' ? 'Menyiapkan PDF…' : 'Menyiapkan Excel…');
-    var name = 'Estimasi-' + (state.est.filter === 'open' ? 'Menunggu' : 'Selesai') + '-' + today() + (kind === 'pdf' ? '.pdf' : '.xlsx');
+    var name = 'Estimasi-ProdukBaru-' + (state.est.filter === 'open' ? 'Menunggu' : 'Selesai') + '-' + today() + (kind === 'pdf' ? '.pdf' : '.xlsx');
     return loadExport(kind).then(function () {
       return kind === 'pdf' ? window.RSExport.pdfEst(model) : window.RSExport.xlsxEst(model);
     }).then(function (blob) { saveBlob(blob, name); toast('File diunduh: ' + name); })
@@ -1385,7 +1566,7 @@
     if (tab) { state.tab = tab.getAttribute('data-tab'); state.openProducts = false; render(); window.scrollTo(0, 0); if (state.tab === 'est') ensureEstimates(); return; }
     if (e.target.closest('#fab')) {
       if (!state.data) return;
-      ({ sales: saleForm, products: productForm, outlets: outletForm, est: estForm }[state.tab] || function () {})();
+      ({ sales: saleForm, products: productForm, outlets: outletForm, est: state.est.sub === 'sales' ? sestForm : estForm }[state.tab] || function () {})();
       return;
     }
     var el = e.target.closest('[data-act]');
@@ -1401,10 +1582,24 @@
     else if (act === 'dl-xlsx' || act === 'dl-pdf') { exportRecap(act === 'dl-pdf' ? 'pdf' : 'xlsx', null); }
     else if (act === 'toggle-products') { state.openProducts = !state.openProducts; render(); }
     else if (act === 'refresh') {
-      if (state.tab === 'est') loadEstimates(true); else reload({ silent: !!d, manual: true });
+      if (state.tab === 'est') refreshEst(true); else reload({ silent: !!d, manual: true });
     }
     else if (act === 'est-xlsx' || act === 'est-pdf') { exportEstimate(act === 'est-pdf' ? 'pdf' : 'xlsx'); }
-    else if (act === 'est-retry') { loadEstimates(true); }
+    else if (act === 'est-retry') { refreshEst(true); }
+    else if (act === 'est-sub') { state.est.sub = el.getAttribute('data-s') === 'sales' ? 'sales' : 'prod'; render(); ensureEstimates(); }
+    else if (act === 'sest-filter') { state.est.s.filter = el.getAttribute('data-f') === 'done' ? 'done' : 'open'; render(); }
+    else if (act === 'sest-edit') { var sx = findSEst(id); if (sx) sestForm(sx); }
+    else if (act === 'sest-del') {
+      var sd = findSEst(id);
+      if (sd) confirmDelete('Hapus estimasi sales', 'Hapus estimasi sales untuk <b>' + esc(sd.outlet) + '</b>?', function () {
+        return sestDo('deleteSalesEstimate', [id, owner()]);
+      }, function () { return Promise.resolve(); });
+    }
+    else if (act === 'sest-done' || act === 'sest-cancel' || act === 'sest-reopen') {
+      var sst = act === 'sest-done' ? 'Sudah order' : act === 'sest-cancel' ? 'Batal' : 'Menunggu';
+      sestDo('setSalesEstimateStatus', [id, owner(), sst]).then(function () { toast('Ditandai: ' + (sst === 'Sudah order' ? 'Tercapai' : sst)); }, function (err) { toast(err.message); });
+    }
+    else if (act === 'sest-xlsx' || act === 'sest-pdf') { exportSEst(act === 'sest-pdf' ? 'pdf' : 'xlsx'); }
     else if (act === 'est-filter') { state.est.filter = el.getAttribute('data-f') === 'done' ? 'done' : 'open'; render(); }
     else if (act === 'est-edit') { var ex = findEst(id); if (ex) estForm(ex); }
     else if (act === 'est-del') {
