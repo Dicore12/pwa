@@ -61,6 +61,17 @@
     font-size: 16px; font-weight: 700; text-align: left; }
   .sechead small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
   .sechead:active { background: var(--soft); }
+  .chips { display: flex; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
+  .chip { border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 999px; padding: 6px 14px; font-size: 13px; }
+  .chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight: 700; }
+  .bd { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; background: var(--soft); color: var(--muted); }
+  .bd.due { background: #fdecea; color: #b3261e; }
+  .bd.soon { background: #fff4e5; color: #8a5300; }
+  @media (prefers-color-scheme: dark) { .bd.due { background: #3d1a17; color: #ffb4ab; } .bd.soon { background: #3a2c10; color: #ffd591; } }
+  .card.est { cursor: pointer; }
+  .card.est .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .card.est .lines { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }
+  .card.est .lines li { padding: 4px 0; }
   .dl .row { margin: 10px 0 0; }
   .dl .btn { flex: 1; }
   .dl-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-right: auto; }
@@ -176,14 +187,18 @@
     { id: 'sales', label: 'Penjualan', icon: '🧾' },
     { id: 'products', label: 'Produk', icon: '📦' },
     { id: 'outlets', label: 'Outlet', icon: '🏪' },
-    { id: 'recap', label: 'Rekap', icon: '📊' }
+    { id: 'recap', label: 'Rekap', icon: '📊' },
+    { id: 'est', label: 'Estimasi', icon: '🔮' }
   ];
   // Sinkronisasi otomatis: cek perubahan dari perangkat lain tiap beberapa detik selama aplikasi terlihat.
   // Versi API Code.gs yang dibutuhkan aplikasi ini (lihat API_VERSION di Code.gs).
-  var API_NEED = 3;
+  var API_NEED = 3;           // minimal untuk fungsi dasar; fitur Estimasi butuh 4
+  var HIST_MONTHS = 6;        // lama riwayat order yang dipakai Estimasi
+  var HIST_KEY = 'rs-hist';
   var SYNC_MS = Number(window.RS_SYNC_MS) || 20000;
 
-  var state = { tab: 'sales', month: ym(new Date()), data: null, sig: '', error: null, busy: false,
+  function newEst() { return { data: null, at: 0, loading: false, error: '', offline: false, stale: false, horizon: 7, open: {}, needsOpen: false }; }
+  var state = { est: newEst(), tab: 'sales', month: ym(new Date()), data: null, sig: '', error: null, busy: false,
                 offlineAt: 0, loadedAt: 0, pending: null, onPending: null, openProducts: false };
   var installEvt = null;
   var seq = 0;          // setiap pemuatan baru membuat balasan pemuatan lama diabaikan
@@ -259,6 +274,89 @@
       (b.tax ? ' · Pajak +' + rp(b.tax) : '') + '</div>';
   }
 
+
+  /**
+   * Estimasi kebutuhan order: dari riwayat order tiap pasangan outlet + produk dihitung
+   *  - rata-rata jeda antar order (median, hari) -> perkiraan tanggal order berikutnya = order terakhir + jeda
+   *  - qty perkiraan = rata-rata 3 order terakhir (dibulatkan, minimal 1); nilai = qty x harga bersih order terakhir
+   * Status per produk: due (sudah waktunya / terlambat), soon (jatuh tempo dalam `horizon` hari), later,
+   * baru (baru 1x order, belum ada pola), lama (lama tidak order). Murni fungsi: tidak memakai variabel di luar.
+   */
+  function estimate(notas, todayStr, horizon) {
+    function dn(s) { var p = s.split('-'); return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000); }
+    function ds(n) {
+      var d = new Date(n * 86400000);
+      return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+    }
+    function median(a) {
+      var b = a.slice().sort(function (x, y) { return x - y; }), m = b.length >> 1;
+      return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2;
+    }
+    var RANK = { due: 0, soon: 1, later: 2, baru: 3, lama: 4 };
+    var t = dn(todayStr);
+    var map = Object.create(null);                       // outlet -> produk -> hari -> {qty, value}
+    notas.forEach(function (n) {
+      var day = dn(n.date);
+      if (day > t) return;                               // tanggal di masa depan (salah ketik) diabaikan
+      var o = map[n.outlet] || (map[n.outlet] = Object.create(null));
+      n.items.forEach(function (it) {
+        var p = o[it.product] || (o[it.product] = Object.create(null));
+        var d = p[day] || (p[day] = { qty: 0, value: 0 });
+        d.qty += it.qty;
+        d.value += it.total != null ? it.total : it.qty * it.price;
+      });
+    });
+
+    var needs = Object.create(null);
+    var outlets = Object.keys(map).map(function (name) {
+      var products = Object.keys(map[name]).map(function (pn) {
+        var p = map[name][pn];
+        var days = Object.keys(p).map(Number).sort(function (a, b) { return a - b; });
+        var n = days.length, last = days[n - 1], rec = p[last];
+        var recent = days.slice(-3).map(function (d) { return p[d].qty; });
+        var qty = Math.max(1, Math.round(recent.reduce(function (a, b) { return a + b; }, 0) / recent.length));
+        var gaps = [];
+        for (var i = 1; i < n; i++) gaps.push(days[i] - days[i - 1]);
+        var interval = n >= 2 ? Math.max(1, Math.round(median(gaps))) : null;
+        var since = t - last;
+        var next = interval ? last + interval : null;
+        var daysTo = next === null ? null : next - t;
+        var status;
+        if (n === 1) status = since > 90 ? 'lama' : 'baru';
+        else if (since > Math.max(60, interval * 3)) status = 'lama';
+        else if (daysTo <= 0) status = 'due';
+        else if (daysTo <= horizon) status = 'soon';
+        else status = 'later';
+        return { product: pn, orders: n, lastDate: ds(last), lastQty: rec.qty, qty: qty, interval: interval,
+          nextDate: next === null ? null : ds(next), daysTo: daysTo, status: status,
+          value: Math.round(qty * (rec.value / rec.qty)) };
+      });
+      products.sort(function (a, b) {
+        return RANK[a.status] - RANK[b.status] || (a.daysTo === null ? 1e9 : a.daysTo) - (b.daysTo === null ? 1e9 : b.daysTo) || b.value - a.value;
+      });
+      var o = { name: name, products: products, status: products[0].status, daysTo: null, nextDate: null, value: 0, active: 0 };
+      products.forEach(function (p) {
+        if ((p.status === 'due' || p.status === 'soon') && true) {
+          o.value += p.value; o.active++;
+          var nd = needs[p.product] || (needs[p.product] = { product: p.product, qty: 0, value: 0, outlets: 0 });
+          nd.qty += p.qty; nd.value += p.value; nd.outlets++;
+        }
+        if (p.daysTo !== null && p.status !== 'lama' && (o.daysTo === null || p.daysTo < o.daysTo)) { o.daysTo = p.daysTo; o.nextDate = p.nextDate; }
+      });
+      return o;
+    });
+    outlets.sort(function (a, b) {
+      return RANK[a.status] - RANK[b.status] || (a.daysTo === null ? 1e9 : a.daysTo) - (b.daysTo === null ? 1e9 : b.daysTo) ||
+        b.value - a.value || (a.name < b.name ? -1 : 1);
+    });
+    var needList = Object.keys(needs).map(function (k) { return needs[k]; })
+      .sort(function (a, b) { return b.value - a.value || (a.product < b.product ? -1 : 1); });
+    var ready = outlets.filter(function (o) { return o.active > 0; });
+    return { outlets: outlets, needs: needList,
+      summary: { outlets: ready.length, products: needList.length,
+        value: ready.reduce(function (s, o) { return s + o.value; }, 0) } };
+  }
+
   var toastT = 0;
   function toast(msg) {
     var t = $('toast');
@@ -299,6 +397,7 @@
       Object.keys(localStorage).forEach(function (k) {
         if (k.indexOf(CACHE_PREFIX) === 0) localStorage.removeItem(k);
       });
+      localStorage.removeItem(HIST_KEY);
     } catch (e) { /* abaikan */ }
   }
 
@@ -325,7 +424,7 @@
     });
   }
   var OUTDATED_MSG = 'Code.gs di Google Sheet masih versi lama, jadi data bisa tercampur antar-HP. Perbarui dulu: tempel Code.gs terbaru lalu Deploy > Manage deployments > pensil > New version.';
-  function outdated() { return !!state.data && state.data.api !== API_NEED; }
+  function outdated() { return !!state.data && (state.data.api || 0) < API_NEED; }
   function call(action) {
     var cfg = getCfg();
     if (!cfg) return Promise.reject(new Error('Belum terhubung ke Google Sheets.'));
@@ -387,6 +486,7 @@
       return;
     }
     state.pending = null;
+    if (changed && state.shown) state.est.stale = true;
     state.data = data;
     state.sig = sig;
     state.loadedAt = Date.now();
@@ -442,7 +542,7 @@
   function render() {
     renderTop();
     renderNav();
-    $('fab').style.display = state.tab === 'recap' || !getCfg() ? 'none' : 'flex';
+    $('fab').style.display = state.tab === 'recap' || state.tab === 'est' || !getCfg() ? 'none' : 'flex';
     var v = $('view');
     v.className = state.busy && state.data ? 'busy' : '';
     if (!getCfg()) {
@@ -450,6 +550,7 @@
         '<button class="btn" data-act="settings">Hubungkan</button></div>';
       return;
     }
+    if (state.tab === 'est') { v.innerHTML = viewEstimate(); return; }
     if (!state.data) {
       v.innerHTML = state.error
         ? '<div class="empty">Gagal memuat data.<br>' + esc(state.error) + '<br><br><button class="btn" data-act="retry">Coba lagi</button></div>'
@@ -532,6 +633,120 @@
     }).join('');
   }
 
+  /* ------------------------------------------------------------ estimasi kebutuhan order */
+  function readHist() {
+    try {
+      var c = JSON.parse(localStorage.getItem(HIST_KEY) || 'null');
+      return c && c.owner === owner() && c.data && Array.isArray(c.data.notas) ? c : null;
+    } catch (e) { return null; }
+  }
+  function saveHist(data) {
+    try { localStorage.setItem(HIST_KEY, JSON.stringify({ at: Date.now(), owner: owner(), data: data })); } catch (e) { /* abaikan */ }
+  }
+  function ensureHistory() {
+    var e = state.est;
+    if (!e.data) {
+      var c = readHist();                                    // tampilkan riwayat terakhir dulu sambil memuat yang baru
+      if (c) { e.data = c.data; e.at = c.at; render(); }
+    }
+    if (!e.data || e.stale || Date.now() - e.at > 60000) loadHistory(false);
+  }
+  function loadHistory(manual) {
+    var cfg = getCfg();
+    var e = state.est;
+    if (!cfg || e.loading) return Promise.resolve();
+    e.loading = true;
+    e.error = '';
+    if (!e.data) render();
+    return rawCall(cfg, 'history', [HIST_MONTHS, cfg.owner || '']).then(function (data) {
+      if (!data || !Array.isArray(data.notas)) throw new Error('Respons riwayat tidak valid.');
+      e.data = data; e.at = Date.now(); e.stale = false; e.offline = false;
+      saveHist(data);
+      if (manual) toast('Estimasi diperbarui');
+    }).catch(function (err) {
+      if (err.network) {
+        if (!e.data) { var c = readHist(); if (c) { e.data = c.data; e.at = c.at; } }
+        e.offline = !!e.data;
+        if (!e.data) e.error = err.message;
+      } else if (/tidak dikenal/i.test(err.message)) {
+        e.error = 'Fitur Estimasi butuh Code.gs terbaru. Tempel Code.gs yang baru lalu Deploy > Manage deployments > pensil > Version: New version.';
+      } else {
+        e.error = err.message;
+      }
+    }).then(function () {
+      e.loading = false;
+      if (state.tab === 'est') render();
+    });
+  }
+
+  function badge(status, daysTo) {
+    if (status === 'due') return daysTo < 0 ? 'Terlambat ' + (-daysTo) + ' hari' : 'Waktunya order';
+    if (status === 'soon' || status === 'later') return daysTo + ' hari lagi';
+    return status === 'baru' ? 'Baru 1× order' : 'Lama tidak order';
+  }
+
+  function viewEstimate() {
+    var e = state.est;
+    if (!e.data) {
+      return e.error
+        ? '<div class="empty">Gagal memuat riwayat.<br>' + esc(e.error) + '<br><br><button class="btn" data-act="est-retry">Coba lagi</button></div>'
+        : '<div class="empty">Memuat riwayat order…</div>';
+    }
+    var hz = e.horizon;
+    var r = estimate(e.data.notas, today(), hz);
+    var h = e.offline
+      ? '<div class="banner">Tidak terhubung. Memakai riwayat terakhir (' +
+        esc(new Date(e.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ').</div>'
+      : '';
+    h += '<div class="chips" role="group" aria-label="Rentang estimasi">' + [7, 14, 30].map(function (d) {
+      return '<button type="button" class="chip" data-act="est-horizon" data-h="' + d + '" aria-pressed="' + (hz === d) + '">' + d + ' hari ke depan</button>';
+    }).join('') + '</div>';
+    if (!r.outlets.length) {
+      return h + '<div class="empty">Belum ada riwayat order dalam ' + HIST_MONTHS + ' bulan terakhir.<br>Estimasi muncul setelah ada penjualan.</div>';
+    }
+    h += '<div class="card dl"><div class="lbl">Unduh rekap estimasi</div><div class="row"><button type="button" class="btn" data-act="est-xlsx">Excel (.xlsx)</button>' +
+      '<button type="button" class="btn" data-act="est-pdf">PDF</button></div></div>';
+    h += '<div class="card summary"><div class="lbl">Perkiraan order dalam ' + hz + ' hari</div><div class="big">' + rp(r.summary.value) + '</div>' +
+      '<div class="lbl">' + r.summary.outlets + ' outlet · ' + r.summary.products + ' produk perlu disiapkan</div></div>';
+
+    if (r.needs.length) {
+      h += '<button type="button" class="sechead" data-act="est-needs" aria-expanded="' + e.needsOpen + '">' +
+        '<span>Produk yang perlu disiapkan<small>' + (e.needsOpen ? 'Ketuk untuk menutup' : r.needs.length + ' produk · ketuk untuk melihat') + '</small></span>' +
+        '<span class="chev">' + (e.needsOpen ? '▾' : '▸') + '</span></button>';
+      if (e.needsOpen) {
+        h += '<div class="card"><ul class="lines">' + r.needs.map(function (n) {
+          return '<li><span>' + esc(n.product) + '<small class="tg">dari ' + n.outlets + ' outlet · ' + rp(n.value) + '</small></span><span><b>≈ ' + n.qty + '</b></span></li>';
+        }).join('') + '</ul></div>';
+      }
+    }
+
+    h += '<h3>Per Outlet</h3>' + r.outlets.map(function (o) {
+      var line;
+      if (o.active) line = 'Perkiraan order ≈ ' + rp(o.value) + ' · ' + o.active + ' produk';
+      else if (o.status === 'later') line = 'Order berikutnya sekitar ' + fmtDate(o.nextDate);
+      else if (o.status === 'baru') line = 'Pola belum cukup (baru order sekali)';
+      else line = 'Terakhir order ' + fmtDate(o.products[0].lastDate);
+      var open = !!e.open[o.name];
+      return '<div class="card est" data-act="est-toggle" data-name="' + esc(o.name) + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
+        '<div class="top"><div class="t">' + esc(o.name) + '</div><span class="bd ' + o.status + '">' + esc(badge(o.status, o.daysTo)) + '</span></div>' +
+        '<div class="s">' + esc(line) + '</div>' +
+        (open ? '<ul class="lines">' + o.products.map(function (p) {
+          var info = p.interval
+            ? 'Biasanya tiap ±' + p.interval + ' hari · terakhir ' + fmtDate(p.lastDate) + ' (' + p.lastQty + ') · ' + p.orders + '× order'
+            : 'Terakhir ' + fmtDate(p.lastDate) + ' (' + p.lastQty + ') · baru 1× order';
+          var when = p.nextDate && p.status !== 'lama' ? ' · berikutnya ± ' + fmtDate(p.nextDate) : '';
+          return '<li><span>' + esc(p.product) + '<small class="tg">' + esc(info + when) + '</small></span>' +
+            '<span>' + (p.status === 'lama' || p.status === 'baru' ? '–' : '<b>≈ ' + p.qty + '</b>') + '</span></li>';
+        }).join('') + '</ul>' : '') + '</div>';
+    }).join('');
+
+    h += '<p class="help">Cara menghitung: dari order ' + HIST_MONTHS + ' bulan terakhir, tiap pasangan outlet dan produk diambil ' +
+      'jeda order yang biasa (nilai tengah) untuk memperkirakan tanggal order berikutnya, dan rata-rata qty 3 order terakhir ' +
+      'untuk perkiraan jumlahnya. Ini perkiraan dari kebiasaan lalu, bukan kepastian. Produk dengan order baru sekali belum punya ' +
+      'pola, dan yang sudah lama tidak order tidak ikut dihitung.</p>';
+    return h;
+  }
+
   function viewRecap() {
     var d = state.data;
     var dl = d.notas.length
@@ -594,6 +809,7 @@
       btn.disabled = true;
       Promise.resolve(r).then(function () {
         state.pending = null;
+        state.est.stale = true;
         closeModal();
         toast('Tersimpan');
         return reload();
@@ -1017,6 +1233,38 @@
     };
   }
 
+  function buildEstModel() {
+    var e = state.est;
+    var r = estimate(e.data.notas, today(), e.horizon);
+    function st(status, daysTo) { return badge(status, daysTo); }
+    return {
+      horizon: e.horizon, owner: owner(), summary: r.summary, needs: r.needs,
+      printedAt: new Date().toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      outlets: r.outlets.map(function (o) {
+        return { name: o.name, statusText: st(o.status, o.daysTo), nextDate: o.nextDate, nextLabel: o.nextDate ? fmtDate(o.nextDate) : '',
+          active: o.active, value: o.value,
+          products: o.products.map(function (p) {
+            return { product: p.product, statusText: st(p.status, p.daysTo), lastDate: p.lastDate, lastLabel: fmtDate(p.lastDate), lastQty: p.lastQty,
+              orders: p.orders, interval: p.interval, nextDate: p.status === 'lama' ? null : p.nextDate,
+              nextLabel: p.nextDate ? fmtDate(p.nextDate) : '', counted: p.status === 'due' || p.status === 'soon', qty: p.qty, value: p.value };
+          }) };
+      })
+    };
+  }
+  function exportEstimate(kind) {
+    if (!state.est.data || exporting) return Promise.resolve();
+    var model = buildEstModel();
+    if (!model.outlets.length) { toast('Belum ada riwayat order.'); return Promise.resolve(); }
+    exporting = true;
+    toast(kind === 'pdf' ? 'Menyiapkan PDF…' : 'Menyiapkan Excel…');
+    var name = 'Estimasi-' + model.horizon + 'hari-' + today() + (kind === 'pdf' ? '.pdf' : '.xlsx');
+    return loadExport(kind).then(function () {
+      return kind === 'pdf' ? window.RSExport.pdfEst(model) : window.RSExport.xlsxEst(model);
+    }).then(function (blob) { saveBlob(blob, name); toast('File diunduh: ' + name); })
+      .catch(function (err) { toast('Gagal membuat file: ' + err.message); })
+      .then(function () { exporting = false; });
+  }
+
   function safeName(s) { return String(s).replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'outlet'; }
   function saveBlob(blob, name) {
     var url = URL.createObjectURL(blob);
@@ -1076,6 +1324,7 @@
           state.data = null;
           state.sig = '';
           state.shown = false;
+          state.est = newEst();
         });
       }, 'Simpan');
     var out = form.querySelector('#logout');
@@ -1083,7 +1332,7 @@
       if (!window.confirm('Putuskan sambungan? Data di Google Sheet tidak dihapus.')) return;
       clearCfg();
       clearCache();
-      state.data = null; state.sig = ''; state.shown = false;
+      state.data = null; state.sig = ''; state.shown = false; state.est = newEst();
       closeModal();
       render();
     };
@@ -1105,7 +1354,7 @@
 
   document.addEventListener('click', function (e) {
     var tab = e.target.closest('[data-tab]');
-    if (tab) { state.tab = tab.getAttribute('data-tab'); state.openProducts = false; render(); window.scrollTo(0, 0); return; }
+    if (tab) { state.tab = tab.getAttribute('data-tab'); state.openProducts = false; render(); window.scrollTo(0, 0); if (state.tab === 'est') ensureHistory(); return; }
     if (e.target.closest('#fab')) {
       if (!state.data) return;
       ({ sales: saleForm, products: productForm, outlets: outletForm }[state.tab] || function () {})();
@@ -1123,7 +1372,14 @@
     } else if (act === 'retry') { reload(); }
     else if (act === 'dl-xlsx' || act === 'dl-pdf') { exportRecap(act === 'dl-pdf' ? 'pdf' : 'xlsx', null); }
     else if (act === 'toggle-products') { state.openProducts = !state.openProducts; render(); }
-    else if (act === 'refresh') { reload({ silent: !!d, manual: true }); }
+    else if (act === 'refresh') {
+      if (state.tab === 'est') loadHistory(true); else reload({ silent: !!d, manual: true });
+    }
+    else if (act === 'est-xlsx' || act === 'est-pdf') { exportEstimate(act === 'est-pdf' ? 'pdf' : 'xlsx'); }
+    else if (act === 'est-retry') { loadHistory(true); }
+    else if (act === 'est-horizon') { state.est.horizon = Number(el.getAttribute('data-h')) || 7; render(); }
+    else if (act === 'est-needs') { state.est.needsOpen = !state.est.needsOpen; render(); }
+    else if (act === 'est-toggle') { var nm = el.getAttribute('data-name'); state.est.open[nm] = !state.est.open[nm]; render(); }
     else if (act === 'settings') { openSetup(!getCfg()); }
     else if (act === 'install') {
       if (installEvt) { installEvt.prompt(); installEvt = null; renderTop(); }
