@@ -67,7 +67,10 @@
   .bd { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; background: var(--soft); color: var(--muted); }
   .bd.due { background: #fdecea; color: #b3261e; }
   .bd.soon { background: #fff4e5; color: #8a5300; }
-  @media (prefers-color-scheme: dark) { .bd.due { background: #3d1a17; color: #ffb4ab; } .bd.soon { background: #3a2c10; color: #ffd591; } }
+  .bd.ok { background: #e6f4ea; color: #137333; }
+  .estacts { display: flex; gap: 8px; margin-top: 10px; }
+  .btn.sm { padding: 7px 12px; font-size: 13px; }
+  @media (prefers-color-scheme: dark) { .bd.due { background: #3d1a17; color: #ffb4ab; } .bd.soon { background: #3a2c10; color: #ffd591; } .bd.ok { background: #13301c; color: #8ee6a4; } }
   .card.est { cursor: pointer; }
   .card.est .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
   .card.est .lines { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; }
@@ -193,11 +196,10 @@
   // Sinkronisasi otomatis: cek perubahan dari perangkat lain tiap beberapa detik selama aplikasi terlihat.
   // Versi API Code.gs yang dibutuhkan aplikasi ini (lihat API_VERSION di Code.gs).
   var API_NEED = 3;           // minimal untuk fungsi dasar; fitur Estimasi butuh 4
-  var HIST_MONTHS = 6;        // lama riwayat order yang dipakai Estimasi
-  var HIST_KEY = 'rs-hist';
+  var EST_KEY = 'rs-est';     // cadangan daftar estimasi untuk dilihat offline
   var SYNC_MS = Number(window.RS_SYNC_MS) || 20000;
 
-  function newEst() { return { data: null, at: 0, loading: false, error: '', offline: false, stale: false, horizon: 7, open: {}, needsOpen: false }; }
+  function newEst() { return { data: null, at: 0, loading: false, error: '', offline: false, filter: 'open' }; }
   var state = { est: newEst(), tab: 'sales', month: ym(new Date()), data: null, sig: '', error: null, busy: false,
                 offlineAt: 0, loadedAt: 0, pending: null, onPending: null, openProducts: false };
   var installEvt = null;
@@ -275,88 +277,6 @@
   }
 
 
-  /**
-   * Estimasi kebutuhan order: dari riwayat order tiap pasangan outlet + produk dihitung
-   *  - rata-rata jeda antar order (median, hari) -> perkiraan tanggal order berikutnya = order terakhir + jeda
-   *  - qty perkiraan = rata-rata 3 order terakhir (dibulatkan, minimal 1); nilai = qty x harga bersih order terakhir
-   * Status per produk: due (sudah waktunya / terlambat), soon (jatuh tempo dalam `horizon` hari), later,
-   * baru (baru 1x order, belum ada pola), lama (lama tidak order). Murni fungsi: tidak memakai variabel di luar.
-   */
-  function estimate(notas, todayStr, horizon) {
-    function dn(s) { var p = s.split('-'); return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000); }
-    function ds(n) {
-      var d = new Date(n * 86400000);
-      return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
-    }
-    function median(a) {
-      var b = a.slice().sort(function (x, y) { return x - y; }), m = b.length >> 1;
-      return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2;
-    }
-    var RANK = { due: 0, soon: 1, later: 2, baru: 3, lama: 4 };
-    var t = dn(todayStr);
-    var map = Object.create(null);                       // outlet -> produk -> hari -> {qty, value}
-    notas.forEach(function (n) {
-      var day = dn(n.date);
-      if (day > t) return;                               // tanggal di masa depan (salah ketik) diabaikan
-      var o = map[n.outlet] || (map[n.outlet] = Object.create(null));
-      n.items.forEach(function (it) {
-        var p = o[it.product] || (o[it.product] = Object.create(null));
-        var d = p[day] || (p[day] = { qty: 0, value: 0 });
-        d.qty += it.qty;
-        d.value += it.total != null ? it.total : it.qty * it.price;
-      });
-    });
-
-    var needs = Object.create(null);
-    var outlets = Object.keys(map).map(function (name) {
-      var products = Object.keys(map[name]).map(function (pn) {
-        var p = map[name][pn];
-        var days = Object.keys(p).map(Number).sort(function (a, b) { return a - b; });
-        var n = days.length, last = days[n - 1], rec = p[last];
-        var recent = days.slice(-3).map(function (d) { return p[d].qty; });
-        var qty = Math.max(1, Math.round(recent.reduce(function (a, b) { return a + b; }, 0) / recent.length));
-        var gaps = [];
-        for (var i = 1; i < n; i++) gaps.push(days[i] - days[i - 1]);
-        var interval = n >= 2 ? Math.max(1, Math.round(median(gaps))) : null;
-        var since = t - last;
-        var next = interval ? last + interval : null;
-        var daysTo = next === null ? null : next - t;
-        var status;
-        if (n === 1) status = since > 90 ? 'lama' : 'baru';
-        else if (since > Math.max(60, interval * 3)) status = 'lama';
-        else if (daysTo <= 0) status = 'due';
-        else if (daysTo <= horizon) status = 'soon';
-        else status = 'later';
-        return { product: pn, orders: n, lastDate: ds(last), lastQty: rec.qty, qty: qty, interval: interval,
-          nextDate: next === null ? null : ds(next), daysTo: daysTo, status: status,
-          value: Math.round(qty * (rec.value / rec.qty)) };
-      });
-      products.sort(function (a, b) {
-        return RANK[a.status] - RANK[b.status] || (a.daysTo === null ? 1e9 : a.daysTo) - (b.daysTo === null ? 1e9 : b.daysTo) || b.value - a.value;
-      });
-      var o = { name: name, products: products, status: products[0].status, daysTo: null, nextDate: null, value: 0, active: 0 };
-      products.forEach(function (p) {
-        if ((p.status === 'due' || p.status === 'soon') && true) {
-          o.value += p.value; o.active++;
-          var nd = needs[p.product] || (needs[p.product] = { product: p.product, qty: 0, value: 0, outlets: 0 });
-          nd.qty += p.qty; nd.value += p.value; nd.outlets++;
-        }
-        if (p.daysTo !== null && p.status !== 'lama' && (o.daysTo === null || p.daysTo < o.daysTo)) { o.daysTo = p.daysTo; o.nextDate = p.nextDate; }
-      });
-      return o;
-    });
-    outlets.sort(function (a, b) {
-      return RANK[a.status] - RANK[b.status] || (a.daysTo === null ? 1e9 : a.daysTo) - (b.daysTo === null ? 1e9 : b.daysTo) ||
-        b.value - a.value || (a.name < b.name ? -1 : 1);
-    });
-    var needList = Object.keys(needs).map(function (k) { return needs[k]; })
-      .sort(function (a, b) { return b.value - a.value || (a.product < b.product ? -1 : 1); });
-    var ready = outlets.filter(function (o) { return o.active > 0; });
-    return { outlets: outlets, needs: needList,
-      summary: { outlets: ready.length, products: needList.length,
-        value: ready.reduce(function (s, o) { return s + o.value; }, 0) } };
-  }
-
   var toastT = 0;
   function toast(msg) {
     var t = $('toast');
@@ -397,7 +317,7 @@
       Object.keys(localStorage).forEach(function (k) {
         if (k.indexOf(CACHE_PREFIX) === 0) localStorage.removeItem(k);
       });
-      localStorage.removeItem(HIST_KEY);
+      localStorage.removeItem(EST_KEY);
     } catch (e) { /* abaikan */ }
   }
 
@@ -486,7 +406,6 @@
       return;
     }
     state.pending = null;
-    if (changed && state.shown) state.est.stale = true;
     state.data = data;
     state.sig = sig;
     state.loadedAt = Date.now();
@@ -542,7 +461,7 @@
   function render() {
     renderTop();
     renderNav();
-    $('fab').style.display = state.tab === 'recap' || state.tab === 'est' || !getCfg() ? 'none' : 'flex';
+    $('fab').style.display = state.tab === 'recap' || !getCfg() ? 'none' : 'flex';
     var v = $('view');
     v.className = state.busy && state.data ? 'busy' : '';
     if (!getCfg()) {
@@ -633,43 +552,44 @@
     }).join('');
   }
 
-  /* ------------------------------------------------------------ estimasi kebutuhan order */
-  function readHist() {
+  /* ------------------------------------------------------------ estimasi (input manual) */
+  var EST_OLD_MSG = 'Fitur Estimasi butuh Code.gs terbaru. Tempel Code.gs yang baru lalu Deploy > Manage deployments > pensil > Version: New version.';
+  function readEst() {
     try {
-      var c = JSON.parse(localStorage.getItem(HIST_KEY) || 'null');
-      return c && c.owner === owner() && c.data && Array.isArray(c.data.notas) ? c : null;
+      var c = JSON.parse(localStorage.getItem(EST_KEY) || 'null');
+      return c && c.owner === owner() && c.data && Array.isArray(c.data.estimates) ? c : null;
     } catch (e) { return null; }
   }
-  function saveHist(data) {
-    try { localStorage.setItem(HIST_KEY, JSON.stringify({ at: Date.now(), owner: owner(), data: data })); } catch (e) { /* abaikan */ }
+  function saveEstCache(data) {
+    try { localStorage.setItem(EST_KEY, JSON.stringify({ at: Date.now(), owner: owner(), data: data })); } catch (e) { /* abaikan */ }
   }
-  function ensureHistory() {
+  function ensureEstimates() {
     var e = state.est;
     if (!e.data) {
-      var c = readHist();                                    // tampilkan riwayat terakhir dulu sambil memuat yang baru
+      var c = readEst();                                     // tampilkan salinan terakhir dulu sambil memuat yang baru
       if (c) { e.data = c.data; e.at = c.at; render(); }
     }
-    if (!e.data || e.stale || Date.now() - e.at > 60000) loadHistory(false);
+    loadEstimates(false);
   }
-  function loadHistory(manual) {
+  function loadEstimates(manual) {
     var cfg = getCfg();
     var e = state.est;
     if (!cfg || e.loading) return Promise.resolve();
     e.loading = true;
     e.error = '';
     if (!e.data) render();
-    return rawCall(cfg, 'history', [HIST_MONTHS, cfg.owner || '']).then(function (data) {
-      if (!data || !Array.isArray(data.notas)) throw new Error('Respons riwayat tidak valid.');
-      e.data = data; e.at = Date.now(); e.stale = false; e.offline = false;
-      saveHist(data);
+    return rawCall(cfg, 'loadEstimates', [cfg.owner || '']).then(function (data) {
+      if (!data || !Array.isArray(data.estimates)) throw new Error('Respons estimasi tidak valid.');
+      e.data = data; e.at = Date.now(); e.offline = false;
+      saveEstCache(data);
       if (manual) toast('Estimasi diperbarui');
     }).catch(function (err) {
       if (err.network) {
-        if (!e.data) { var c = readHist(); if (c) { e.data = c.data; e.at = c.at; } }
+        if (!e.data) { var c = readEst(); if (c) { e.data = c.data; e.at = c.at; } }
         e.offline = !!e.data;
         if (!e.data) e.error = err.message;
       } else if (/tidak dikenal/i.test(err.message)) {
-        e.error = 'Fitur Estimasi butuh Code.gs terbaru. Tempel Code.gs yang baru lalu Deploy > Manage deployments > pensil > Version: New version.';
+        e.error = EST_OLD_MSG;
       } else {
         e.error = err.message;
       }
@@ -678,73 +598,180 @@
       if (state.tab === 'est') render();
     });
   }
-
-  function badge(status, daysTo) {
-    if (status === 'due') return daysTo < 0 ? 'Terlambat ' + (-daysTo) + ' hari' : 'Waktunya order';
-    if (status === 'soon' || status === 'later') return daysTo + ' hari lagi';
-    return status === 'baru' ? 'Baru 1× order' : 'Lama tidak order';
+  /** Simpan perubahan ke Sheet lalu muat ulang daftar estimasi. */
+  function estDo(action, args) {
+    var cfg = getCfg();
+    if (!cfg) return Promise.reject(new Error('Belum terhubung ke Google Sheets.'));
+    return rawCall(cfg, action, args).then(function (r) {
+      return loadEstimates(false).then(function () { return r; });
+    }, function (err) {
+      throw /tidak dikenal/i.test(err.message) ? new Error(EST_OLD_MSG) : err;
+    });
+  }
+  function dayNum(s) { var p = s.split('-'); return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000); }
+  function targetBadge(est) {
+    if (est.status !== 'Menunggu') return { cls: est.status === 'Batal' ? '' : 'ok', text: est.status };
+    var n = dayNum(est.date) - dayNum(today());
+    if (n < 0) return { cls: 'due', text: 'Lewat ' + (-n) + ' hari' };
+    if (n === 0) return { cls: 'due', text: 'Hari ini' };
+    return { cls: n <= 3 ? 'soon' : '', text: n + ' hari lagi' };
+  }
+  function findEst(id) {
+    var l = state.est.data ? state.est.data.estimates : [];
+    for (var i = 0; i < l.length; i++) if (l[i].est === id) return l[i];
+    return null;
+  }
+  function estList() {
+    var e = state.est;
+    return e.data.estimates.filter(function (x) { return (x.status === 'Menunggu') === (e.filter === 'open'); });
   }
 
   function viewEstimate() {
     var e = state.est;
     if (!e.data) {
       return e.error
-        ? '<div class="empty">Gagal memuat riwayat.<br>' + esc(e.error) + '<br><br><button class="btn" data-act="est-retry">Coba lagi</button></div>'
-        : '<div class="empty">Memuat riwayat order…</div>';
+        ? '<div class="empty">Gagal memuat estimasi.<br>' + esc(e.error) + '<br><br><button class="btn" data-act="est-retry">Coba lagi</button></div>'
+        : '<div class="empty">Memuat estimasi…</div>';
     }
-    var hz = e.horizon;
-    var r = estimate(e.data.notas, today(), hz);
+    var all = e.data.estimates;
+    var nOpen = all.filter(function (x) { return x.status === 'Menunggu'; }).length;
+    var sm = e.data.summary || { open: 0, qty: 0, total: 0 };
     var h = e.offline
-      ? '<div class="banner">Tidak terhubung. Memakai riwayat terakhir (' +
+      ? '<div class="banner">Tidak terhubung. Menampilkan salinan terakhir (' +
         esc(new Date(e.at).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })) + ').</div>'
       : '';
-    h += '<div class="chips" role="group" aria-label="Rentang estimasi">' + [7, 14, 30].map(function (d) {
-      return '<button type="button" class="chip" data-act="est-horizon" data-h="' + d + '" aria-pressed="' + (hz === d) + '">' + d + ' hari ke depan</button>';
-    }).join('') + '</div>';
-    if (!r.outlets.length) {
-      return h + '<div class="empty">Belum ada riwayat order dalam ' + HIST_MONTHS + ' bulan terakhir.<br>Estimasi muncul setelah ada penjualan.</div>';
+    h += '<div class="card summary"><div class="lbl">Estimasi yang dikejar</div><div class="big">' + rp(sm.total) + '</div>' +
+      '<div class="lbl">' + sm.open + ' estimasi · ' + sm.qty + ' item menunggu order</div></div>';
+    if (all.length) {
+      h += '<div class="card dl"><div class="lbl">Unduh rekap estimasi (' + (e.filter === 'open' ? 'Menunggu' : 'Selesai') + ')</div>' +
+        '<div class="row"><button type="button" class="btn" data-act="est-xlsx">Excel (.xlsx)</button>' +
+        '<button type="button" class="btn" data-act="est-pdf">PDF</button></div></div>';
     }
-    h += '<div class="card dl"><div class="lbl">Unduh rekap estimasi</div><div class="row"><button type="button" class="btn" data-act="est-xlsx">Excel (.xlsx)</button>' +
-      '<button type="button" class="btn" data-act="est-pdf">PDF</button></div></div>';
-    h += '<div class="card summary"><div class="lbl">Perkiraan order dalam ' + hz + ' hari</div><div class="big">' + rp(r.summary.value) + '</div>' +
-      '<div class="lbl">' + r.summary.outlets + ' outlet · ' + r.summary.products + ' produk perlu disiapkan</div></div>';
-
-    if (r.needs.length) {
-      h += '<button type="button" class="sechead" data-act="est-needs" aria-expanded="' + e.needsOpen + '">' +
-        '<span>Produk yang perlu disiapkan<small>' + (e.needsOpen ? 'Ketuk untuk menutup' : r.needs.length + ' produk · ketuk untuk melihat') + '</small></span>' +
-        '<span class="chev">' + (e.needsOpen ? '▾' : '▸') + '</span></button>';
-      if (e.needsOpen) {
-        h += '<div class="card"><ul class="lines">' + r.needs.map(function (n) {
-          return '<li><span>' + esc(n.product) + '<small class="tg">dari ' + n.outlets + ' outlet · ' + rp(n.value) + '</small></span><span><b>≈ ' + n.qty + '</b></span></li>';
-        }).join('') + '</ul></div>';
-      }
+    h += '<div class="chips" role="group" aria-label="Filter estimasi">' +
+      '<button type="button" class="chip" data-act="est-filter" data-f="open" aria-pressed="' + (e.filter === 'open') + '">Menunggu (' + nOpen + ')</button>' +
+      '<button type="button" class="chip" data-act="est-filter" data-f="done" aria-pressed="' + (e.filter === 'done') + '">Selesai (' + (all.length - nOpen) + ')</button></div>';
+    var list = estList();
+    if (!list.length) {
+      return h + '<div class="empty">' + (all.length
+        ? (e.filter === 'open' ? 'Tidak ada estimasi yang menunggu.' : 'Belum ada estimasi yang selesai atau dibatalkan.')
+        : 'Belum ada estimasi.<br>Tekan + untuk menambah estimasi order outlet.') + '</div>';
     }
-
-    h += '<h3>Per Outlet</h3>' + r.outlets.map(function (o) {
-      var line;
-      if (o.active) line = 'Perkiraan order ≈ ' + rp(o.value) + ' · ' + o.active + ' produk';
-      else if (o.status === 'later') line = 'Order berikutnya sekitar ' + fmtDate(o.nextDate);
-      else if (o.status === 'baru') line = 'Pola belum cukup (baru order sekali)';
-      else line = 'Terakhir order ' + fmtDate(o.products[0].lastDate);
-      var open = !!e.open[o.name];
-      return '<div class="card est" data-act="est-toggle" data-name="' + esc(o.name) + '" role="button" tabindex="0" aria-expanded="' + open + '">' +
-        '<div class="top"><div class="t">' + esc(o.name) + '</div><span class="bd ' + o.status + '">' + esc(badge(o.status, o.daysTo)) + '</span></div>' +
-        '<div class="s">' + esc(line) + '</div>' +
-        (open ? '<ul class="lines">' + o.products.map(function (p) {
-          var info = p.interval
-            ? 'Biasanya tiap ±' + p.interval + ' hari · terakhir ' + fmtDate(p.lastDate) + ' (' + p.lastQty + ') · ' + p.orders + '× order'
-            : 'Terakhir ' + fmtDate(p.lastDate) + ' (' + p.lastQty + ') · baru 1× order';
-          var when = p.nextDate && p.status !== 'lama' ? ' · berikutnya ± ' + fmtDate(p.nextDate) : '';
-          return '<li><span>' + esc(p.product) + '<small class="tg">' + esc(info + when) + '</small></span>' +
-            '<span>' + (p.status === 'lama' || p.status === 'baru' ? '–' : '<b>≈ ' + p.qty + '</b>') + '</span></li>';
-        }).join('') + '</ul>' : '') + '</div>';
+    return h + list.map(function (x) {
+      var b = targetBadge(x);
+      var acts = x.status === 'Menunggu'
+        ? '<button type="button" class="btn sm" data-act="est-done" data-id="' + esc(x.est) + '">✓ Sudah order</button>' +
+          '<button type="button" class="btn sm ghost" data-act="est-cancel" data-id="' + esc(x.est) + '">Batal</button>'
+        : '<button type="button" class="btn sm ghost" data-act="est-reopen" data-id="' + esc(x.est) + '">Buka lagi</button>';
+      return '<div class="card est" data-act="est-edit" data-id="' + esc(x.est) + '" role="button" tabindex="0">' +
+        '<div class="top"><div><div class="t">' + esc(x.outlet) + '</div><div class="s">Target ' + esc(fmtDate(x.date)) + '</div></div>' +
+        '<span class="bd ' + b.cls + '">' + esc(b.text) + '</span></div>' +
+        '<ul class="lines">' + x.items.map(function (l) {
+          return '<li><span>' + esc(l.product) + '</span><span>' + l.qty + ' × ' + rp(l.price) + '</span></li>';
+        }).join('') + '</ul>' +
+        (x.note ? '<div class="s" style="margin-top:4px">' + esc(x.note) + '</div>' : '') +
+        '<div class="top" style="margin-top:8px"><b>' + rp(x.total) + '</b>' +
+        '<button class="icon" data-act="est-del" data-id="' + esc(x.est) + '" aria-label="Hapus">🗑</button></div>' +
+        '<div class="estacts">' + acts + '</div></div>';
     }).join('');
+  }
 
-    h += '<p class="help">Cara menghitung: dari order ' + HIST_MONTHS + ' bulan terakhir, tiap pasangan outlet dan produk diambil ' +
-      'jeda order yang biasa (nilai tengah) untuk memperkirakan tanggal order berikutnya, dan rata-rata qty 3 order terakhir ' +
-      'untuk perkiraan jumlahnya. Ini perkiraan dari kebiasaan lalu, bukan kepastian. Produk dengan order baru sekali belum punya ' +
-      'pola, dan yang sudah lama tidak order tidak ikut dihitung.</p>';
-    return h;
+  function estForm(editing) {
+    var d = state.data;
+    if (!d) { toast('Data produk dan outlet belum termuat.'); return; }
+    var s = editing || { est: '', date: today(), outlet: '', note: '', items: [{ product: '', qty: '', price: '' }] };
+    var known = {};
+    if (editing) editing.items.forEach(function (l) { known[l.product] = true; });
+
+    function lineHtml(l) {
+      return '<div class="line">' +
+        '<div class="lhead"><b class="ln">Produk</b><button type="button" class="icon x" aria-label="Hapus baris">✕</button></div>' +
+        '<div class="cbw"><label>Nama produk<input class="lp cbin" autocomplete="off" placeholder="Ketuk untuk memilih produk" value="' + esc(l.product) + '"></label><div class="dd" hidden></div></div>' +
+        '<div class="row"><label>Qty estimasi<input class="lq" inputmode="numeric" value="' + esc(l.qty) + '"></label>' +
+        '<label>Harga satuan<input class="lr" inputmode="numeric" value="' + esc(l.price) + '"></label></div>' +
+        '<div class="sub">Total: <b class="ls">0</b></div></div>';
+    }
+    var body =
+      '<label>Target order (kapan dikejar)<input type="date" name="date" value="' + esc(s.date) + '"></label>' +
+      '<div class="cbw"><label>Outlet<input name="outlet" class="cbin" autocomplete="off" placeholder="Ketuk untuk memilih outlet" value="' + esc(s.outlet) + '"></label><div class="dd" hidden></div></div>' +
+      '<div class="sec">Produk</div><div id="lines">' + s.items.map(lineHtml).join('') + '</div>' +
+      '<button type="button" class="btn ghost" id="addline" style="padding-left:0">+ Tambah produk</button>' +
+      '<label>Catatan (opsional)<input name="note" value="' + esc(s.note) + '"></label>' +
+      '<div class="tbox"><div class="trow grand"><span>Total estimasi</span><b id="tot">Rp 0</b></div></div>';
+
+    var form = openModal(editing ? 'Ubah Estimasi' : 'Tambah Estimasi', body, function (f) {
+      var v = fv(f);
+      var outlet = v.outlet.trim();
+      if (!v.date) return 'Pilih tanggal target.';
+      if (!byName(d.outlets, outlet) && !(editing && outlet === editing.outlet)) return 'Pilih outlet dari daftar.';
+      var items = [];
+      var els = f.querySelectorAll('.line');
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        var product = el.querySelector('.lp').value.trim();
+        var qtyRaw = el.querySelector('.lq').value, priceRaw = el.querySelector('.lr').value;
+        if (!product && !qtyRaw && !priceRaw) continue;
+        var no = 'Produk ' + (i + 1) + ': ';
+        var qty = parseInt(qtyRaw, 10), price = parseInt(priceRaw, 10);
+        if (!product || (!byName(d.products, product) && !known[product])) return no + 'pilih produk dari daftar.';
+        if (!(qty > 0)) return no + 'qty harus lebih dari 0.';
+        if (!(price >= 0)) return no + 'isi harga satuan.';
+        items.push({ product: product, qty: qty, price: price });
+      }
+      if (!items.length) return 'Isi minimal satu produk.';
+      return estDo('saveEstimate', [{
+        est: editing ? editing.est : '', owner: owner(), date: v.date, outlet: outlet, note: v.note,
+        status: editing ? editing.status : 'Menunggu', items: items
+      }]);
+    }, 'Simpan', function () { return Promise.resolve(); });
+
+    var box = form.querySelector('#lines');
+    function attachLine(el) {
+      combo(el.querySelector('.lp'), function () {
+        return d.products.map(function (p) { return { value: p.name, sub: rp(p.price) }; });
+      }, { empty: 'Produk tidak ditemukan. Tambahkan dulu di tab Produk.', next: function () { el.querySelector('.lq').focus(); } });
+    }
+    Array.prototype.forEach.call(box.querySelectorAll('.line'), attachLine);
+    combo(form.elements.outlet, function () {
+      return d.outlets.map(function (o) { return { value: o.name, sub: o.address || '' }; });
+    }, {
+      empty: 'Outlet tidak ditemukan. Tambahkan dulu di tab Outlet.',
+      next: function () { var first = box.querySelector('.lp'); if (first && !first.value) first.focus(); else form.elements.outlet.blur(); }
+    });
+    function refresh() {
+      var tot = 0;
+      var rows = box.querySelectorAll('.line');
+      Array.prototype.forEach.call(rows, function (el, i) {
+        el.querySelector('.ln').textContent = 'Produk ' + (i + 1);
+        el.querySelector('.x').style.visibility = rows.length > 1 ? 'visible' : 'hidden';
+        var t = (parseInt(el.querySelector('.lq').value, 10) || 0) * (parseInt(el.querySelector('.lr').value, 10) || 0);
+        el.querySelector('.ls').textContent = rp(t);
+        tot += t;
+      });
+      $('tot').textContent = rp(tot);
+    }
+    form.addEventListener('input', function (e) {
+      var t = e.target;
+      if (t.classList.contains('lq') || t.classList.contains('lr')) t.value = t.value.replace(/\D/g, '');
+      if (t.classList.contains('lp')) {
+        var p = byName(d.products, t.value.trim());
+        if (p) t.closest('.line').querySelector('.lr').value = String(p.price);
+      }
+      refresh();
+    });
+    form.addEventListener('click', function (e) {
+      var x = e.target.closest('.x');
+      if (x) { x.closest('.line').remove(); refresh(); }
+      else if (e.target.id === 'addline') {
+        box.insertAdjacentHTML('beforeend', lineHtml({ product: '', qty: '', price: '' }));
+        refresh();
+        var last = box.lastElementChild;
+        attachLine(last);
+        last.scrollIntoView({ block: 'nearest' });
+        last.querySelector('.lp').focus();
+      }
+    });
+    form.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault(); });
+    refresh();
   }
 
   function viewRecap() {
@@ -786,7 +813,7 @@
   }
 
   /** onSave(form) mengembalikan teks error, atau Promise (sukses = tutup + muat ulang). */
-  function openModal(title, body, onSave, saveLabel) {
+  function openModal(title, body, onSave, saveLabel, after) {
     var root = $('modal-root');
     root.innerHTML = '<div class="overlay"><form class="sheet" role="dialog" aria-modal="true" novalidate>' +
       '<h2>' + esc(title) + '</h2>' + body + '<div class="err" id="err" role="alert"></div>' +
@@ -809,10 +836,9 @@
       btn.disabled = true;
       Promise.resolve(r).then(function () {
         state.pending = null;
-        state.est.stale = true;
         closeModal();
-        toast('Tersimpan');
-        return reload();
+        toast(saveLabel === 'Hapus' ? 'Dihapus' : 'Tersimpan');
+        return after ? after() : reload();
       }, function (e) {
         btn.disabled = false;
         err.textContent = e.message;
@@ -833,8 +859,8 @@
     $('cancel').focus({ preventScroll: true }); // jangan menggulung ke tombol di dasar daftar panjang
   }
 
-  function confirmDelete(title, message, fn) {
-    openModal(title, '<p>' + message + '</p>', function () { return fn(); }, 'Hapus');
+  function confirmDelete(title, message, fn, after) {
+    openModal(title, '<p>' + message + '</p>', function () { return fn(); }, 'Hapus', after);
   }
 
   document.addEventListener('keydown', function (e) {
@@ -1235,29 +1261,31 @@
 
   function buildEstModel() {
     var e = state.est;
-    var r = estimate(e.data.notas, today(), e.horizon);
-    function st(status, daysTo) { return badge(status, daysTo); }
+    var by = Object.create(null), order = [];
+    estList().slice().sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }).forEach(function (x) {
+      var o = by[x.outlet];
+      if (!o) { o = by[x.outlet] = { name: x.outlet, count: 0, qty: 0, total: 0, rows: [] }; order.push(o); }
+      o.count++;
+      x.items.forEach(function (l) {
+        o.rows.push({ date: x.date, dateLabel: fmtDate(x.date), product: l.product, qty: l.qty, price: l.price, total: l.qty * l.price, status: x.status, note: x.note || '' });
+        o.qty += l.qty; o.total += l.qty * l.price;
+      });
+    });
+    order.sort(function (a, b) { return b.total - a.total || (a.name < b.name ? -1 : 1); });
+    var g = { count: 0, qty: 0, total: 0 };
+    order.forEach(function (o) { g.count += o.count; g.qty += o.qty; g.total += o.total; });
     return {
-      horizon: e.horizon, owner: owner(), summary: r.summary, needs: r.needs,
-      printedAt: new Date().toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      outlets: r.outlets.map(function (o) {
-        return { name: o.name, statusText: st(o.status, o.daysTo), nextDate: o.nextDate, nextLabel: o.nextDate ? fmtDate(o.nextDate) : '',
-          active: o.active, value: o.value,
-          products: o.products.map(function (p) {
-            return { product: p.product, statusText: st(p.status, p.daysTo), lastDate: p.lastDate, lastLabel: fmtDate(p.lastDate), lastQty: p.lastQty,
-              orders: p.orders, interval: p.interval, nextDate: p.status === 'lama' ? null : p.nextDate,
-              nextLabel: p.nextDate ? fmtDate(p.nextDate) : '', counted: p.status === 'due' || p.status === 'soon', qty: p.qty, value: p.value };
-          }) };
-      })
+      filterLabel: e.filter === 'open' ? 'Menunggu' : 'Selesai / Batal', owner: owner(), outlets: order, grand: g,
+      printedAt: new Date().toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     };
   }
   function exportEstimate(kind) {
     if (!state.est.data || exporting) return Promise.resolve();
     var model = buildEstModel();
-    if (!model.outlets.length) { toast('Belum ada riwayat order.'); return Promise.resolve(); }
+    if (!model.outlets.length) { toast('Tidak ada estimasi untuk diunduh.'); return Promise.resolve(); }
     exporting = true;
     toast(kind === 'pdf' ? 'Menyiapkan PDF…' : 'Menyiapkan Excel…');
-    var name = 'Estimasi-' + model.horizon + 'hari-' + today() + (kind === 'pdf' ? '.pdf' : '.xlsx');
+    var name = 'Estimasi-' + (state.est.filter === 'open' ? 'Menunggu' : 'Selesai') + '-' + today() + (kind === 'pdf' ? '.pdf' : '.xlsx');
     return loadExport(kind).then(function () {
       return kind === 'pdf' ? window.RSExport.pdfEst(model) : window.RSExport.xlsxEst(model);
     }).then(function (blob) { saveBlob(blob, name); toast('File diunduh: ' + name); })
@@ -1354,10 +1382,10 @@
 
   document.addEventListener('click', function (e) {
     var tab = e.target.closest('[data-tab]');
-    if (tab) { state.tab = tab.getAttribute('data-tab'); state.openProducts = false; render(); window.scrollTo(0, 0); if (state.tab === 'est') ensureHistory(); return; }
+    if (tab) { state.tab = tab.getAttribute('data-tab'); state.openProducts = false; render(); window.scrollTo(0, 0); if (state.tab === 'est') ensureEstimates(); return; }
     if (e.target.closest('#fab')) {
       if (!state.data) return;
-      ({ sales: saleForm, products: productForm, outlets: outletForm }[state.tab] || function () {})();
+      ({ sales: saleForm, products: productForm, outlets: outletForm, est: estForm }[state.tab] || function () {})();
       return;
     }
     var el = e.target.closest('[data-act]');
@@ -1373,13 +1401,22 @@
     else if (act === 'dl-xlsx' || act === 'dl-pdf') { exportRecap(act === 'dl-pdf' ? 'pdf' : 'xlsx', null); }
     else if (act === 'toggle-products') { state.openProducts = !state.openProducts; render(); }
     else if (act === 'refresh') {
-      if (state.tab === 'est') loadHistory(true); else reload({ silent: !!d, manual: true });
+      if (state.tab === 'est') loadEstimates(true); else reload({ silent: !!d, manual: true });
     }
     else if (act === 'est-xlsx' || act === 'est-pdf') { exportEstimate(act === 'est-pdf' ? 'pdf' : 'xlsx'); }
-    else if (act === 'est-retry') { loadHistory(true); }
-    else if (act === 'est-horizon') { state.est.horizon = Number(el.getAttribute('data-h')) || 7; render(); }
-    else if (act === 'est-needs') { state.est.needsOpen = !state.est.needsOpen; render(); }
-    else if (act === 'est-toggle') { var nm = el.getAttribute('data-name'); state.est.open[nm] = !state.est.open[nm]; render(); }
+    else if (act === 'est-retry') { loadEstimates(true); }
+    else if (act === 'est-filter') { state.est.filter = el.getAttribute('data-f') === 'done' ? 'done' : 'open'; render(); }
+    else if (act === 'est-edit') { var ex = findEst(id); if (ex) estForm(ex); }
+    else if (act === 'est-del') {
+      var ed = findEst(id);
+      if (ed) confirmDelete('Hapus estimasi', 'Hapus estimasi untuk <b>' + esc(ed.outlet) + '</b>?', function () {
+        return estDo('deleteEstimate', [id, owner()]);
+      }, function () { return Promise.resolve(); });
+    }
+    else if (act === 'est-done' || act === 'est-cancel' || act === 'est-reopen') {
+      var st = act === 'est-done' ? 'Sudah order' : act === 'est-cancel' ? 'Batal' : 'Menunggu';
+      estDo('setEstimateStatus', [id, owner(), st]).then(function () { toast('Ditandai: ' + st); }, function (err) { toast(err.message); });
+    }
     else if (act === 'settings') { openSetup(!getCfg()); }
     else if (act === 'install') {
       if (installEvt) { installEvt.prompt(); installEvt = null; renderTop(); }

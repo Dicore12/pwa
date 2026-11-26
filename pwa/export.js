@@ -230,78 +230,53 @@
     return book(sheets);
   }
 
-  /* ------------------------------------------------------------------ ESTIMASI */
-
+  /* ------------------------------------------------------------------ ESTIMASI (input manual) */
   function estMeta(m) {
-    return 'Rentang: ' + m.horizon + ' hari ke depan' + (m.owner ? '   |   Sales: ' + m.owner : '') + '   |   Dibuat: ' + m.printedAt;
+    return 'Tampilan: ' + m.filterLabel + (m.owner ? '   |   Sales: ' + m.owner : '') + '   |   Dibuat: ' + m.printedAt;
   }
-  var EST_NOTE = 'Perkiraan dari kebiasaan order lalu (' + 'jeda order tengah, rata-rata qty 3 order terakhir), bukan kepastian. Nilai hanya menghitung produk yang sudah waktunya atau jatuh tempo dalam rentang.';
+  var EST_NOTE = 'Estimasi order yang diinput sendiri dan dikejar ke outlet. Total = Qty x Harga.';
   function estSummarySheet(m) {
     var rows = [];
-    rows[0] = [cs('A1', 'Estimasi Kebutuhan Order per Outlet', S.title)];
+    rows[0] = [cs('A1', 'Rekap Estimasi per Outlet', S.title)];
     rows[1] = [cs('A2', estMeta(m), S.muted)];
-    rows[2] = [cs('A3', EST_NOTE, S.muted)];
-    var head = ['No', 'Outlet', 'Status', 'Order berikutnya', 'Produk', 'Perkiraan nilai (Rp)'];
-    rows[4] = head.map(function (h, i) { return cs(colName(i) + '5', h, S.head); });
+    rows[2] = [cs('A3', EST_NOTE + ' Tiap outlet punya sheet sendiri.', S.muted)];
+    rows[4] = ['No', 'Outlet', 'Estimasi', 'Qty', 'Total (Rp)'].map(function (h, i) { return cs(colName(i) + '5', h, S.head); });
     var r = 6;
     m.outlets.forEach(function (o, i) {
       var n = String(r);
-      rows[r - 1] = [cn('A' + n, i + 1, S.int), cs('B' + n, o.name, S.text), cs('C' + n, o.statusText, S.text),
-        o.nextDate ? cn('D' + n, serial(o.nextDate), S.date) : cs('D' + n, '-', S.text), cn('E' + n, o.active, S.int), cn('F' + n, o.value, S.int)];
+      rows[r - 1] = [cn('A' + n, i + 1, S.int), cs('B' + n, o.name, S.text), cn('C' + n, o.count, S.int), cn('D' + n, o.qty, S.int), cn('E' + n, o.total, S.int)];
       r++;
     });
-    var t = String(r);
-    rows[r - 1] = [cs('A' + t, 'Total', S.totLabel), cb('B' + t, S.totBlank), cb('C' + t, S.totBlank), cb('D' + t, S.totBlank),
-      cb('E' + t, S.totBlank), cf('F' + t, 'SUM(F6:F' + (r - 1) + ')', m.summary.value, S.totInt)];
-    return sheetXml(rows, [6, 36, 20, 16, 10, 20], 5);
+    var t = String(r), g = m.grand;
+    function sum(col, v) { return cf(col + t, 'SUM(' + col + '6:' + col + (r - 1) + ')', v, S.totInt); }
+    rows[r - 1] = [cs('A' + t, 'Total', S.totLabel), cb('B' + t, S.totBlank), sum('C', g.count), sum('D', g.qty), sum('E', g.total)];
+    return sheetXml(rows, [6, 38, 11, 10, 18], 5);
   }
-  function estNeedsSheet(m) {
-    var rows = [];
-    rows[0] = [cs('A1', 'Produk yang Perlu Disiapkan', S.title)];
-    rows[1] = [cs('A2', estMeta(m), S.muted)];
-    rows[2] = [cs('A3', EST_NOTE, S.muted)];
-    var head = ['No', 'Produk', 'Perkiraan Qty', 'Jumlah outlet', 'Perkiraan nilai (Rp)'];
-    rows[4] = head.map(function (h, i) { return cs(colName(i) + '5', h, S.head); });
-    var r = 6;
-    m.needs.forEach(function (x, i) {
-      var n = String(r);
-      rows[r - 1] = [cn('A' + n, i + 1, S.int), cs('B' + n, x.product, S.text), cn('C' + n, x.qty, S.int), cn('D' + n, x.outlets, S.int), cn('E' + n, x.value, S.int)];
-      r++;
-    });
-    var t = String(r);
-    rows[r - 1] = [cs('A' + t, 'Total', S.totLabel), cb('B' + t, S.totBlank), cb('C' + t, S.totBlank), cb('D' + t, S.totBlank),
-      cf('E' + t, 'SUM(E6:E' + (r - 1) + ')', m.summary.value, S.totInt)];
-    return sheetXml(rows, [6, 38, 14, 14, 20], 5);
-  }
-  var EST_HEAD = ['Produk', 'Status', 'Order terakhir', 'Qty terakhir', 'Jumlah order', 'Jeda biasa (hari)', 'Order berikutnya', 'Perkiraan qty', 'Perkiraan nilai (Rp)'];
+  var EST_HEAD = ['Target order', 'Produk', 'Qty', 'Harga', 'Total', 'Status', 'Catatan'];
   function estOutletSheet(m, o) {
     var rows = [];
-    rows[0] = [cs('A1', 'Estimasi Order - ' + o.name, S.title)];
+    rows[0] = [cs('A1', 'Estimasi - ' + o.name, S.title)];
     rows[1] = [cs('A2', estMeta(m), S.muted)];
-    rows[2] = [cs('A3', o.statusText + (o.nextDate ? '   |   Order berikutnya sekitar ' + o.nextLabel : ''), S.muted)];
+    rows[2] = [cs('A3', EST_NOTE, S.muted)];
     rows[4] = EST_HEAD.map(function (h, i) { return cs(colName(i) + '5', h, S.head); });
     var r = 6;
-    o.products.forEach(function (x) {
+    o.rows.forEach(function (x) {
       var n = String(r);
-      rows[r - 1] = [cs('A' + n, x.product, S.text), cs('B' + n, x.statusText, S.text), cn('C' + n, serial(x.lastDate), S.date),
-        cn('D' + n, x.lastQty, S.int), cn('E' + n, x.orders, S.int),
-        x.interval ? cn('F' + n, x.interval, S.int) : cs('F' + n, '-', S.text),
-        x.nextDate ? cn('G' + n, serial(x.nextDate), S.date) : cs('G' + n, '-', S.text),
-        x.counted ? cn('H' + n, x.qty, S.int) : cs('H' + n, '-', S.text), cn('I' + n, x.counted ? x.value : 0, S.int)];
+      rows[r - 1] = [cn('A' + n, serial(x.date), S.date), cs('B' + n, x.product, S.text), cn('C' + n, x.qty, S.int), cn('D' + n, x.price, S.int),
+        cf('E' + n, 'C' + n + '*D' + n, x.total, S.int), cs('F' + n, x.status, S.text), cs('G' + n, x.note || '', S.text)];
       r++;
     });
     var t = String(r);
-    rows[r - 1] = [cs('A' + t, 'Total', S.totLabel), cb('B' + t, S.totBlank), cb('C' + t, S.totBlank), cb('D' + t, S.totBlank), cb('E' + t, S.totBlank),
-      cb('F' + t, S.totBlank), cb('G' + t, S.totBlank), cb('H' + t, S.totBlank), cf('I' + t, 'SUM(I6:I' + (r - 1) + ')', o.value, S.totInt)];
-    return sheetXml(rows, [34, 20, 14, 12, 12, 16, 16, 14, 20], 5);
+    function sum(col, v) { return cf(col + t, 'SUM(' + col + '6:' + col + (r - 1) + ')', v, S.totInt); }
+    rows[r - 1] = [cs('A' + t, 'Total', S.totLabel), cb('B' + t, S.totBlank), sum('C', o.qty), cb('D' + t, S.totBlank), sum('E', o.total), cb('F' + t, S.totBlank), cb('G' + t, S.totBlank)];
+    return sheetXml(rows, [14, 34, 8, 14, 16, 14, 30], 5);
   }
   function xlsxEst(m) {
     var used = {};
-    var sheets = [{ name: sheetName('Ringkasan', used), xml: estSummarySheet(m) }, { name: sheetName('Kebutuhan Produk', used), xml: estNeedsSheet(m) }];
+    var sheets = [{ name: sheetName('Ringkasan', used), xml: estSummarySheet(m) }];
     m.outlets.forEach(function (o) { sheets.push({ name: sheetName(o.name, used), xml: estOutletSheet(m, o) }); });
     return book(sheets);
   }
-
 
   /* ------------------------------------------------------------------ PDF */
   function pdf(model) {
@@ -391,13 +366,10 @@
       var lines = doc.splitTextToSize(title, W - 2 * M);
       doc.text(lines, M, 16);
       var y = 16 + (lines.length - 1) * 6.5;
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(100);
-      var l1 = doc.splitTextToSize(sub1, W - 2 * M); doc.text(l1, M, y + 6);
-      y += 6 + (l1.length - 1) * 4;
-      var l2 = doc.splitTextToSize(sub2, W - 2 * M); doc.text(l2, M, y + 5);
-      y += 5 + (l2.length - 1) * 4;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(100);
+      doc.text(sub1, M, y + 6); doc.text(sub2, M, y + 11);
       doc.setTextColor(20);
-      return y + 6;
+      return y + 16;
     }
     var common = {
       theme: 'grid', margin: { left: M, right: M, bottom: 14 },
@@ -407,37 +379,26 @@
     };
     function R(t) { return { content: t, styles: { halign: 'right' } }; }
     function opts(extra) { var o = {}, k; for (k in common) o[k] = common[k]; for (k in extra) o[k] = extra[k]; return o; }
-    var y = heading('Estimasi Kebutuhan Order per Outlet', estMeta(m), EST_NOTE);
+    var meta = 'Tampilan: ' + m.filterLabel + (m.owner ? '   |   Sales: ' + m.owner : '');
+    var g = m.grand;
+    var y = heading('Rekap Estimasi per Outlet', meta, 'Dibuat: ' + m.printedAt + '   |   Nominal dalam Rupiah');
     doc.autoTable(opts({
       startY: y,
-      head: [['No', 'Outlet', 'Status', 'Order berikutnya', 'Produk', 'Perkiraan nilai']],
-      body: m.outlets.map(function (o, i) { return [String(i + 1), o.name, o.statusText, o.nextDate ? o.nextLabel : '-', fmt(o.active), fmt(o.value)]; }),
-      foot: [['', 'Total', '', '', '', R(fmt(m.summary.value))]],
-      columnStyles: { 0: { halign: 'center', cellWidth: 12 }, 4: { halign: 'right' }, 5: { halign: 'right', fontStyle: 'bold' } }
+      head: [['No', 'Outlet', 'Estimasi', 'Qty', 'Total']],
+      body: m.outlets.map(function (o, i) { return [String(i + 1), o.name, fmt(o.count), fmt(o.qty), fmt(o.total)]; }),
+      foot: [['', 'Total semua outlet', R(fmt(g.count)), R(fmt(g.qty)), R(fmt(g.total))]],
+      columnStyles: { 0: { halign: 'center', cellWidth: 12 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } }
     }));
-    if (m.needs.length) {
-      doc.addPage();
-      var ny = heading('Produk yang Perlu Disiapkan', estMeta(m), 'Gabungan perkiraan qty dari semua outlet.');
-      doc.autoTable(opts({
-        startY: ny,
-        head: [['No', 'Produk', 'Perkiraan Qty', 'Jumlah outlet', 'Perkiraan nilai']],
-        body: m.needs.map(function (x, i) { return [String(i + 1), x.product, fmt(x.qty), fmt(x.outlets), fmt(x.value)]; }),
-        foot: [['', 'Total', '', '', R(fmt(m.summary.value))]],
-        columnStyles: { 0: { halign: 'center', cellWidth: 12 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } }
-      }));
-    }
     m.outlets.forEach(function (o) {
       doc.addPage();
-      var sy = heading(o.name, estMeta(m), o.statusText + (o.nextDate ? '   |   Order berikutnya sekitar ' + o.nextLabel : '') + '   |   Perkiraan ' + fmt(o.value));
+      var sy = heading(o.name, meta, o.count + ' estimasi   |   ' + fmt(o.qty) + ' item   |   Total ' + fmt(o.total));
       doc.autoTable(opts({
         startY: sy,
-        head: [['Produk', 'Status', 'Order terakhir', 'Qty terakhir', 'Jumlah order', 'Jeda (hari)', 'Order berikutnya', 'Perkiraan qty', 'Perkiraan nilai']],
-        body: o.products.map(function (x) {
-          return [x.product, x.statusText, x.lastLabel, fmt(x.lastQty), fmt(x.orders), x.interval ? fmt(x.interval) : '-', x.nextDate ? x.nextLabel : '-',
-            x.counted ? fmt(x.qty) : '-', x.counted ? fmt(x.value) : '0'];
-        }),
-        foot: [['Total', '', '', '', '', '', '', '', R(fmt(o.value))]],
-        columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right', fontStyle: 'bold' } }
+        head: [['Target order', 'Produk', 'Qty', 'Harga', 'Total', 'Status', 'Catatan']],
+        body: o.rows.map(function (x) { return [x.dateLabel, x.product, fmt(x.qty), fmt(x.price), fmt(x.total), x.status, x.note || '']; }),
+        foot: [['Total', '', R(fmt(o.qty)), '', R(fmt(o.total)), '', '']],
+        columnStyles: { 0: { cellWidth: 28 }, 2: { halign: 'right', cellWidth: 16 }, 3: { halign: 'right', cellWidth: 28 },
+          4: { halign: 'right', cellWidth: 32, fontStyle: 'bold' }, 5: { cellWidth: 26 } }
       }));
     });
     var pages = doc.getNumberOfPages(), H = doc.internal.pageSize.getHeight();
