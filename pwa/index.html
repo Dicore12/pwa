@@ -353,6 +353,12 @@
     toast('Hapus butuh Code.gs terbaru (agar tidak menghapus di HP lain). Perbarui dulu lalu Deploy > New version.');
     return false;
   }
+  /** Outlet per nama sales butuh Code.gs versi 8; versi lama menyimpannya sebagai outlet bersama yang terlihat semua sales. */
+  function needOutletApi() {
+    if (state.data && (state.data.api || 0) >= 8) return true;
+    toast('Outlet per sales butuh Code.gs terbaru. Tempel Code.gs baru lalu Deploy > New version.');
+    return false;
+  }
   function outdated() { return !!state.data && (state.data.api || 0) < API_NEED; }
   function call(action) {
     var cfg = getCfg();
@@ -1349,7 +1355,8 @@
       function (f) {
         var v = fv(f);
         if (!v.name.trim()) return 'Nama outlet wajib diisi.';
-        return call('saveOutlet', { id: editing ? editing.id : '', name: v.name, address: v.address });
+        if (!needOutletApi()) return 'Perbarui Code.gs dulu (lihat pesan di layar).';
+        return call('saveOutlet', { id: editing ? editing.id : '', owner: owner(), name: v.name, address: v.address });
       });
   }
 
@@ -1642,7 +1649,7 @@
     } else if (act === 'del-outlet') {
       e.stopPropagation();
       var oo = d.outlets.filter(function (x) { return x.id === id; })[0];
-      if (oo && needDeleteApi()) confirmDelete('Hapus Outlet', 'Hapus outlet <b>' + esc(oo.name) + '</b> dari daftar di HP ini? Penjualan lama tidak ikut terhapus, dan HP lain dengan Nama sales berbeda tetap melihat outlet ini.',
+      if (oo && needDeleteApi()) confirmDelete('Hapus Outlet', 'Hapus outlet <b>' + esc(oo.name) + '</b> dari daftar? Penjualan lama tidak ikut terhapus.',
         function () { return call('deleteOutlet', id, owner()); });
     }
   });
