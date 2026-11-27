@@ -347,6 +347,12 @@
     });
   }
   var OUTDATED_MSG = 'Code.gs di Google Sheet masih versi lama, jadi data bisa tercampur antar-HP. Perbarui dulu: tempel Code.gs terbaru lalu Deploy > Manage deployments > pensil > New version.';
+  /** Hapus produk/outlet yang hanya berlaku di HP ini butuh Code.gs versi 7; versi lama akan menghapus untuk semua HP. */
+  function needDeleteApi() {
+    if (state.data && (state.data.api || 0) >= 7) return true;
+    toast('Hapus butuh Code.gs terbaru (agar tidak menghapus di HP lain). Perbarui dulu lalu Deploy > New version.');
+    return false;
+  }
   function outdated() { return !!state.data && (state.data.api || 0) < API_NEED; }
   function call(action) {
     var cfg = getCfg();
@@ -1631,13 +1637,13 @@
     } else if (act === 'del-product') {
       e.stopPropagation();
       var pp = d.products.filter(function (x) { return x.id === id; })[0];
-      if (pp) confirmDelete('Hapus Produk', 'Hapus produk <b>' + esc(pp.name) + '</b>? Penjualan lama tidak ikut terhapus.',
-        function () { return call('deleteProduct', id); });
+      if (pp && needDeleteApi()) confirmDelete('Hapus Produk', 'Hapus produk <b>' + esc(pp.name) + '</b> dari daftar di HP ini? Penjualan lama tidak ikut terhapus, dan HP lain dengan Nama sales berbeda tetap melihat produk ini.',
+        function () { return call('deleteProduct', id, owner()); });
     } else if (act === 'del-outlet') {
       e.stopPropagation();
       var oo = d.outlets.filter(function (x) { return x.id === id; })[0];
-      if (oo) confirmDelete('Hapus Outlet', 'Hapus outlet <b>' + esc(oo.name) + '</b>? Penjualan lama tidak ikut terhapus.',
-        function () { return call('deleteOutlet', id); });
+      if (oo && needDeleteApi()) confirmDelete('Hapus Outlet', 'Hapus outlet <b>' + esc(oo.name) + '</b> dari daftar di HP ini? Penjualan lama tidak ikut terhapus, dan HP lain dengan Nama sales berbeda tetap melihat outlet ini.',
+        function () { return call('deleteOutlet', id, owner()); });
     }
   });
   document.addEventListener('keydown', function (e) {
